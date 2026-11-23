@@ -1,0 +1,35 @@
+version: 1
+access:
+  admin_token: example-admin-token-change-me
+  collector_token: example-collector-token-change-me
+device:
+  brightness: 75
+  rotation: 0
+  auto_rotate: false
+screen:
+  pages:
+    - id: home
+      title: Overview
+      widgets:
+        - id: team
+          type: agents
+          at: [0, 0]
+          size: [4, 6]
+alerts:
+  volume: 35
+  vibration_strength: 60
+  flash_enabled: false
+  rules:
+    - id: finished
+      type: agent_done
+      sound: true
+      vibrate: true
+      flash: true
+    - id: memory-high
+      type: metric_high
+      host: office
+      source: system.memory
+      key: usage_pct
+      unit: percent
+      threshold: 90
+      recover: 80

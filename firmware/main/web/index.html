@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Curio</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/vendor/js-yaml.min.js" defer></script>
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <strong>curio</strong>
+      <nav>
+        <button data-tab="config">配置</button>
+        <button data-tab="screen">屏幕</button>
+        <button data-tab="data">数据</button>
+        <button data-tab="alerts">提醒</button>
+        <button data-tab="device">设备</button>
+        <button id="logout">退出</button>
+      </nav>
+    </header>
+    <form id="login">
+      <label>
+        管理 Token
+        <input id="token" type="password" required autocomplete="current-password" />
+      </label>
+      <button>连接</button>
+    </form>
+    <p id="status" role="status"></p>
+    <main hidden>
+      <div class="workspace">
+        <section id="editor"></section>
+        <aside>
+          <div class="preview-heading">
+            <span>实时预览</span><small id="preview-detail">480 × 480</small>
+          </div>
+          <div id="frame"><div id="screen"></div></div>
+        </aside>
+      </div>
+    </main>
+    <datalist id="hosts"></datalist>
+    <datalist id="sources"></datalist>
+    <datalist id="keys"></datalist>
+    <datalist id="alert-hosts"></datalist>
+    <datalist id="alert-units"></datalist>
+  </body>
+</html>

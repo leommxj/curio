@@ -1,0 +1,10 @@
+endpoint: https://curio.local
+ca: server-cert.pem
+token_file: token.txt
+sources:
+  herdr:
+    module: herdr
+  system.cpu:
+    module: cpu
+  system.memory:
+    module: memory

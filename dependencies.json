@@ -1,0 +1,39 @@
+{
+  "idf_commit": "7b9cc1ac79f865983f59bb8ff3ff43eb74ff1dbe",
+  "sources": [
+    {
+      "name": "cJSON",
+      "commit": "c859b25da02955fef659d658b8f324b5cde87be3",
+      "url": "https://codeload.github.com/DaveGamble/cJSON/tar.gz/c859b25da02955fef659d658b8f324b5cde87be3",
+      "sha256": "880a86445ad5cf38f877bac31198268d8fac5d2ce996ebf55d3066a4109ddd8d"
+    },
+    {
+      "name": "esp-mosaico-bsp",
+      "commit": "795032767dbe47b35034b5a03f6afa10afa60e14",
+      "url": "https://codeload.github.com/esp-mosaico/esp-mosaico-bsp/tar.gz/795032767dbe47b35034b5a03f6afa10afa60e14",
+      "sha256": "7af7c9a1096d6663091ed970437edab374e6e0089e454a218db107c1b4aa8ec8"
+    },
+    {
+      "name": "esp-mosaico-utils",
+      "commit": "f58f4f9e5363f908b17a8e1ea8fdf4dd77561ef1",
+      "url": "https://api.github.com/repos/esp-mosaico/esp-mosaico-utils/tarball/f58f4f9e5363f908b17a8e1ea8fdf4dd77561ef1",
+      "sha256": "5b6bc2ce6b5ff2b8f4099d883c158d1d09a5aa98fdf205d6a42687c9ccd836d4"
+    },
+    {
+      "name": "libyaml",
+      "commit": "0.2.5",
+      "url": "https://pyyaml.org/download/libyaml/yaml-0.2.5.tar.gz",
+      "sha256": "c642ae9b75fee120b2d96c712538bd2cf283228d2337df2cf2988e3c02678ef4"
+    }
+  ],
+  "web_dependencies": [
+    {
+      "name": "js-yaml",
+      "version": "4.1.1",
+      "url": "https://registry.npmjs.org/js-yaml/-/js-yaml-4.1.1.tgz",
+      "sha256": "948181607d4fb62dde7b9e04a62d89b20e62cd0c5659ceb711bc31768d00436f",
+      "vendored_file": "firmware/main/web/vendor/js-yaml.min.js",
+      "vendored_sha256": "0de3dec92d20eab9e0b46a5d928cd45ec025d73e348ddf458dbfb01da00cb473"
+    }
+  ]
+}
