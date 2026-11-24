@@ -45,10 +45,11 @@ static void test_config(void)
     curio_alert_config_t c = config(), copy = {0};
     assert(curio_alert_config_validate(&c));
     assert(curio_alert_config_clone(&copy,&c));
-    assert(curio_alert_config_equal(&c,&copy));
+    assert(curio_alert_rules_equal(&c,&copy) && c.volume == copy.volume &&
+           c.vibration_strength == copy.vibration_strength && c.flash_enabled == copy.flash_enabled);
     assert(c.rules[0].options != copy.rules[0].options);
     copy.volume = 10;
-    assert(curio_alert_rules_equal(&c,&copy) && !curio_alert_config_equal(&c,&copy));
+    assert(curio_alert_rules_equal(&c,&copy) && c.volume != copy.volume);
     copy.rules[0].display_s = 301;
     assert(!curio_alert_config_validate(&copy));
     const curio_alert_type_t *type = curio_alert_type_find("agent_done");

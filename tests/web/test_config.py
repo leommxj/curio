@@ -113,15 +113,33 @@ class ConfigBrowserTest(BrowserTest):
     def tab(self, name):
         self.page.locator(f'[data-tab="{name}"]').click()
 
+    def change(self, selector, value):
+        field = self.page.locator(selector)
+        field.fill(value)
+        field.dispatch_event("change")
+
+    def save(self, selector):
+        self.page.locator(selector).click()
+        self.page.wait_for_function("!dirty()")
+
     def config(self):
         return self.page.evaluate("jsyaml.load(yamlText)")
 
     def test_forms_yaml_credentials_and_conflict(self):
+        self.tab("alerts")
+        volume = self.page.locator('[data-alert-field="volume"]')
+        volume.fill("")
+        volume.dispatch_event("change")
+        writes = sum(method == "PUT" for _, method, *_ in self.requests)
+        self.page.locator("#save-alerts").click()
+        self.page.wait_for_function("/音量|volume/.test(document.querySelector('#status').textContent)")
+        self.assertEqual(volume.input_value(), "")
+        self.assertEqual(sum(method == "PUT" for _, method, *_ in self.requests), writes)
+        volume.fill("35")
+        volume.dispatch_event("change")
         self.tab("device")
-        self.page.locator("#brightness").fill("61")
-        self.page.locator("#brightness").dispatch_event("change")
-        self.page.locator("#save-device").click()
-        self.page.wait_for_function("!deviceDirty")
+        self.change("#brightness", "61")
+        self.save("#save-device")
         document = self.config()
         self.assertEqual(document["device"]["brightness"], 61)
         self.assertEqual(document["network"]["wifi"][0]["ssid"], "Studio WiFi")
@@ -160,14 +178,11 @@ class ConfigBrowserTest(BrowserTest):
             self.page.locator("#download-certificate").click()
         self.assertEqual(info.value.suggested_filename, "curio-studio.crt")
         self.assertIn("initial-cert", Path(info.value.path()).read_text())
-        self.page.locator('[data-wifi-index="0"] [data-wifi-field="ssid"]').fill("New Studio")
-        self.page.locator('[data-wifi-index="0"] [data-wifi-field="ssid"]').dispatch_event("change")
-        self.page.locator("#network-hostname").fill("curio-renamed")
-        self.page.locator("#network-hostname").dispatch_event("change")
+        self.change('[data-wifi-index="0"] [data-wifi-field="ssid"]', "New Studio")
+        self.change("#network-hostname", "curio-renamed")
         self.assertTrue(self.page.locator("#download-certificate").is_disabled())
         self.regenerate_tls = True
-        self.page.locator("#save-device").click()
-        self.page.wait_for_function("!deviceDirty")
+        self.save("#save-device")
         submitted = [body for path, method, _, body in self.requests if path == "config" and method == "PUT"][-1]
         self.assertNotIn("tls:", submitted)
         self.assertEqual(self.config()["network"]["hostname"], "curio-renamed")
@@ -177,6 +192,17 @@ class ConfigBrowserTest(BrowserTest):
             self.page.locator("#download-certificate").click()
         self.assertEqual(info.value.suggested_filename, "curio-renamed.crt")
         self.assertIn("replacement-cert", Path(info.value.path()).read_text())
+        self.regenerate_tls = False
+        self.tab("config")
+        imported = self.config()
+        imported["network"]["hostname"] = "curio-imported"
+        imported["tls"] = {"certificate": "imported-cert", "private_key": "imported-key"}
+        self.page.locator("#yaml-editor").fill(json.dumps(imported))
+        self.tab("device")
+        self.change("#brightness", "59")
+        self.save("#save-device")
+        self.assertEqual(self.config()["tls"], {"certificate": "imported-cert", "private_key": "imported-key"})
+        self.assertEqual(self.config()["network"]["hostname"], "curio-imported")
         self.page.locator("#restart-device").click()
         self.page.wait_for_function("document.querySelector('#status').textContent.includes('设备正在重启')")
         restarts = [(method, headers) for path, method, headers, _ in self.requests if path == "restart"]
@@ -193,15 +219,13 @@ class ConfigBrowserTest(BrowserTest):
         second.locator('[data-wifi-field="password"]').fill("a" * 64)
         second.locator('[data-wifi-field="password"]').dispatch_event("change")
         self.page.locator('[data-wifi-index="1"] [data-wifi-move="up"]').click()
-        self.page.locator("#save-device").click()
-        self.page.wait_for_function("!deviceDirty")
+        self.save("#save-device")
         self.assertEqual(self.config()["network"]["wifi"], [
             {"ssid": "Guest", "password": "a" * 64},
             {"ssid": "Studio WiFi", "password": "password123"},
         ])
         self.page.locator('[data-wifi-index="1"] [data-wifi-remove]').click()
-        self.page.locator("#save-device").click()
-        self.page.wait_for_function("!deviceDirty")
+        self.save("#save-device")
         self.assertEqual([wifi["ssid"] for wifi in self.config()["network"]["wifi"]], ["Guest"])
         self.tab("config")
         original = self.page.locator("#yaml-editor").input_value()
@@ -229,14 +253,21 @@ class ConfigBrowserTest(BrowserTest):
         metric.locator("[data-metric-select]").select_option("0")
         self.assertEqual(self.page.locator(".metric-value").inner_text(), "42%")
         self.assertEqual(self.page.locator(".agent-name strong").inner_text(), "Build")
-        self.page.locator("#save").click()
-        self.page.wait_for_function("!displayDirty")
+        self.save("#save")
         binding = self.config()["screen"]["pages"][0]["widgets"][1]
         self.assertEqual((binding["host"], binding["source"], binding["key"]),
                          ("workstation", "system.cpu", "usage_pct"))
         self.assertEqual(self.config()["network"]["hostname"], "curio-studio")
         self.assertIn("initial-cert", self.config()["tls"]["certificate"])
         self.assertFalse(any(path == "catalog" for path, *_ in self.requests))
+        self.tab("alerts")
+        rule = self.page.locator(".alert-rule").nth(1)
+        rule.locator("summary").first.click()
+        rule.locator("[data-alert-metric]").select_option("0")
+        self.assertTrue(self.page.evaluate("dirtySections.has('alerts')"))
+        self.save("#save-alerts")
+        binding = self.config()["alerts"]["rules"][1]
+        self.assertEqual((binding["source"], binding["key"]), ("system.cpu", "usage_pct"))
 
     def test_yaml_admin_change_and_mobile_layout(self):
         self.page.set_viewport_size({"width": 375, "height": 812})
@@ -272,16 +303,13 @@ class ConfigBrowserTest(BrowserTest):
         self.assertIn("# Curio config", self.page.locator("#yaml-editor").input_value())
         self.tab("device")
         self.assertEqual(self.page.locator("#brightness").input_value(), "23")
-        self.page.locator("#brightness").fill("24")
-        self.page.locator("#brightness").dispatch_event("change")
+        self.change("#brightness", "24")
         self.tab("alerts")
-        self.page.locator('[data-alert-field="volume"]').fill("42")
-        self.page.locator('[data-alert-field="volume"]').dispatch_event("change")
+        self.change('[data-alert-field="volume"]', "42")
         self.tab("config")
         self.assertEqual(self.config()["device"]["brightness"], 24)
         self.assertEqual(self.config()["alerts"]["volume"], 42)
-        self.page.locator("#save-config").click()
-        self.page.wait_for_function("!yamlDirty && !deviceDirty && !alertsDirty")
+        self.save("#save-config")
         self.tab("device")
         self.assertEqual(self.page.locator("#brightness").input_value(), "24")
 
@@ -354,10 +382,8 @@ class ConfigBrowserTest(BrowserTest):
         self.load_widgets([widget], state)
         self.assertEqual(self.widgets()[0]["unit"], "")
         self.assertEqual(self.page.locator(".metric-value").inner_text(), "42")
-        self.page.locator('[data-field="title"]').fill("Count")
-        self.page.locator('[data-field="title"]').dispatch_event("change")
-        self.page.locator("#save").click()
-        self.page.wait_for_function("!displayDirty")
+        self.change('[data-field="title"]', "Count")
+        self.save("#save")
         self.assertEqual(self.config()["screen"]["pages"][0]["widgets"][0]["unit"], "")
 
     def test_module_scalar_schemas_and_hostless_alert_are_independent(self):
@@ -383,11 +409,9 @@ class ConfigBrowserTest(BrowserTest):
         self.page.locator("#yaml-editor").fill(draft)
         self.tab("screen")
         self.assertEqual(self.page.locator(".typed-card").inner_text(), "7")
-        self.page.locator("#save").click()
-        self.page.wait_for_function("!yamlDirty")
+        self.save("#save")
         self.tab("alerts")
-        self.page.locator("#save-alerts").click()
-        self.page.wait_for_function("!alertsDirty")
+        self.save("#save-alerts")
         self.assertNotIn("host", self.config()["alerts"]["rules"][0])
         self.tab("config")
         invalid = draft.replace("source: 7", "source: invalid")
@@ -411,11 +435,9 @@ class ConfigBrowserTest(BrowserTest):
         }""")
         self.page.locator("#new-type").select_option("note")
         self.page.locator("#add-widget").click()
-        self.page.locator('[data-field="text"]').fill("module text")
-        self.page.locator('[data-field="text"]').dispatch_event("change")
+        self.change('[data-field="text"]', "module text")
         self.assertEqual(self.page.locator(".note-card").inner_text(), "module text")
-        self.page.locator("#save").click()
-        self.page.wait_for_function("!displayDirty")
+        self.save("#save")
         saved = self.config()["screen"]["pages"][0]["widgets"][0]
         self.assertEqual((saved["type"], saved["text"]), ("note", "module text"))
         self.page.locator("#reload").click()
@@ -428,8 +450,7 @@ class ConfigBrowserTest(BrowserTest):
         source = self.page.locator('[data-alert-field="source"]').first
         source.fill("team.agents")
         source.dispatch_event("change")
-        self.page.locator("#save-alerts").click()
-        self.page.wait_for_function("!alertsDirty")
+        self.save("#save-alerts")
         self.assertEqual(self.config()["alerts"]["rules"][0]["source"], "team.agents")
         self.assertIn("team.agents", self.page.locator(".alert-rule").first.inner_text())
 
@@ -448,8 +469,7 @@ class ConfigBrowserTest(BrowserTest):
             self.page.locator('[data-alert-field="type"]').first.select_option(kind)
             for field in ("vibrate", "flash"):
                 self.assertTrue(self.page.locator(f'[data-alert-field="{field}"]').first.is_checked())
-        self.page.locator("#save-alerts").click()
-        self.page.wait_for_function("!alertsDirty")
+        self.save("#save-alerts")
         alerts = self.config()["alerts"]
         self.assertEqual(alerts["vibration_strength"], 0)
         self.assertTrue(alerts["flash_enabled"])
@@ -471,6 +491,10 @@ class ConfigBrowserTest(BrowserTest):
         fields = [
             ("c.device.auto_rotate", ["false"], "auto_rotate"),
             ("c.device.rotation", [45], "rotation"),
+            ("c.device.brightness", [-1, 101, 1.5], "亮度"),
+            ("c.alerts.volume", [-1, 101, 1.5], "音量"),
+            ("c.alerts.rules[0].duration", [-1, 301, 1.5], "显示时间"),
+            ("c.alerts.rules[0].id", ["bad id", "x" * 49], "规则 ID"),
             ("c.device.ntp_server", ["https://time.example.com", "time.example.com/path", ""], "NTP"),
             ("c.alerts.rules[0].sound", ["false"], "sound"),
             ("c.alerts.rules[0].include_idle", [None], "include_idle"),
@@ -489,6 +513,8 @@ class ConfigBrowserTest(BrowserTest):
                  for field, values, error in fields for value in values]
         cases += [
             ("c.network.wifi.push({...c.network.wifi[0]})", "重复"),
+            ("c.alerts.rules = Array(9).fill({type:'agent_done'})", "最多 8"),
+            ("c.alerts.rules[1].id = c.alerts.rules[0].id = 'same'", "重复"),
             ("c.network.wifi = Array(5).fill({ssid:'x'})", "最多 4"),
             ("c.network.ssid = 'legacy'", "未知字段"),
             ("c.screen.pages.push(structuredClone(c.screen.pages[0]))", "重复"),
@@ -532,8 +558,7 @@ class ConfigBrowserTest(BrowserTest):
         }""", widgets)
         self.tab("config")
         self.page.locator("#yaml-editor").fill(source)
-        self.page.locator("#save-config").click()
-        self.page.wait_for_function("!yamlDirty")
+        self.save("#save-config")
         self.tab("screen")
         if state is not None:
             self.tab("data")
@@ -577,14 +602,13 @@ class ConfigBrowserTest(BrowserTest):
         moved = self.widgets()
         self.assertEqual([w["at"] for w in moved], [[1, 0], [0, 0], [3, 5]])
         self.assertEqual(sum(method != "GET" for _, method, *_ in self.requests), writes)
-        self.assertTrue(self.page.evaluate("displayDirty"))
+        self.assertTrue(self.page.evaluate("dirtySections.has('screen')"))
         self.page.locator("#undo-layout").click()
         self.assertEqual(self.widgets(), before)
-        self.assertFalse(self.page.evaluate("displayDirty"))
+        self.assertFalse(self.page.evaluate("dirtySections.has('screen')"))
         self.begin_drag("cpu", 116, 0)
         self.page.mouse.up()
-        self.page.locator("#save").click()
-        self.page.wait_for_function("!displayDirty")
+        self.save("#save")
         self.assertEqual(self.config()["screen"]["pages"][0]["widgets"][0]["at"], [1, 0])
         self.assertTrue(all("at" in w and "size" in w and "slot" not in w for w in self.config()["screen"]["pages"][0]["widgets"]))
         self.assertNotIn("layout", self.config()["screen"]["pages"][0])
@@ -644,8 +668,7 @@ class ConfigBrowserTest(BrowserTest):
         self.assertEqual(self.page.locator(".card .metric-status").inner_text(), "Online")
         self.page.locator('[data-field="rect.height"]').select_option("2")
         self.assertEqual(self.page.locator(".status-detail").inner_text(), "HTTP 200")
-        self.page.locator("#save").click()
-        self.page.wait_for_function("!displayDirty")
+        self.save("#save")
         widget = self.config()["screen"]["pages"][0]["widgets"][0]
         self.assertEqual((widget["type"], widget["host"], widget["source"]), ("status", "workstation", "service.http"))
         self.tab("config")
@@ -655,7 +678,7 @@ class ConfigBrowserTest(BrowserTest):
         self.page.locator("#import-yaml").set_input_files({
             "name": "status.yaml", "mimeType": "application/yaml", "buffer": exported.encode(),
         })
-        self.page.wait_for_function("yamlDirty")
+        self.page.wait_for_function("dirtySections.has('config')")
         self.tab("screen")
         self.assertEqual(self.widgets()[0]["source"], "service.http")
         for mutation, expected in [("s.status='error'", "Collection error"),
@@ -727,10 +750,8 @@ class ConfigBrowserTest(BrowserTest):
         self.page.locator("[data-remove]").click()
         self.page.locator("#new-type").select_option("metric")
         self.page.locator("#add-widget").click()
-        self.page.locator('[data-field="host"]').fill("not-reported")
-        self.page.locator('[data-field="host"]').dispatch_event("change")
-        self.page.locator("#save").click()
-        self.page.wait_for_function("!displayDirty")
+        self.change('[data-field="host"]', "not-reported")
+        self.save("#save")
         self.assertEqual(self.widgets()[0]["host"], "not-reported")
         for _ in range(3):
             self.page.locator("#add-page").click()
@@ -784,22 +805,34 @@ class ConfigBrowserTest(BrowserTest):
         self.load_widgets([self.metric("cpu", [0, 0])])
         self.begin_drag("cpu", 116, 0)
         self.page.mouse.up()
-        self.page.locator('[data-field="title"]').fill("Renamed")
-        self.page.locator('[data-field="title"]').dispatch_event("change")
+        self.change('[data-field="title"]', "Renamed")
         self.page.locator("#undo-layout").click()
         self.assertEqual(self.widgets()[0]["title"], "cpu")
         self.assertEqual(self.widgets()[0]["at"], [1, 0])
         self.page.locator("#undo-layout").click()
         self.assertEqual(self.widgets()[0]["at"], [0, 0])
         self.assertFalse(self.page.evaluate("dirty()"))
-        self.page.locator('[data-field="title"]').fill("Another")
-        self.page.locator('[data-field="title"]').dispatch_event("change")
+        for tab, selector, value in [("device", "#brightness", "62"),
+                                     ("alerts", '[data-alert-field="volume"]', "43")]:
+            self.tab(tab)
+            self.change(selector, value)
+        self.tab("screen")
+        self.begin_drag("cpu", 116, 0)
+        self.page.mouse.up()
+        self.page.locator("#undo-layout").click()
+        self.assertEqual(self.page.evaluate("[...dirtySections].sort()"), ["alerts", "device"])
+        self.tab("config")
+        self.assertEqual(self.config()["device"]["brightness"], 62)
+        self.assertEqual(self.config()["alerts"]["volume"], 43)
+        self.assertEqual(self.config()["screen"]["pages"][0]["widgets"][0]["at"], [0, 0])
+        self.tab("screen")
+        self.change('[data-field="title"]', "Another")
         self.assertFalse(self.page.locator("#undo-layout").is_disabled())
         self.tab("config")
         self.page.locator("#import-yaml").set_input_files({
             "name": "import.yml", "mimeType": "application/yaml", "buffer": FIXTURE.encode(),
         })
-        self.page.wait_for_function("yamlDirty && display.pages[0].widgets.length === 2")
+        self.page.wait_for_function("dirtySections.has('config') && display.pages[0].widgets.length === 2")
         self.tab("screen")
         self.assertTrue(self.page.locator("#undo-layout").is_disabled())
 
@@ -811,8 +844,7 @@ class ConfigBrowserTest(BrowserTest):
         self.assertEqual((clock["title"], clock["size"]), ("", [1, 1]))
         self.assertEqual(self.page.locator('[data-field="title"]').get_attribute("placeholder"), "自动")
         self.assertEqual(self.page.locator('[data-field="host"], [data-metric-select]').count(), 0)
-        self.page.locator("#save").click()
-        self.page.wait_for_function("!displayDirty")
+        self.save("#save")
         saved = self.config()["screen"]["pages"][0]["widgets"][0]
         for key in ("host", "source"):
             self.assertNotIn(key, saved)
@@ -838,10 +870,8 @@ class ConfigBrowserTest(BrowserTest):
         self.assertRegex(self.page.locator(".clock-time").inner_text(), r"^\d{2}:\d{2}:\d{2}$")
         self.assertRegex(self.page.locator(".clock-date").inner_text(), r"^\d{4}-\d{2}-\d{2}$")
         self.tab("device")
-        self.page.locator("#ntp-server").fill("time.example.com")
-        self.page.locator("#ntp-server").dispatch_event("change")
-        self.page.locator("#save-device").click()
-        self.page.wait_for_function("!deviceDirty")
+        self.change("#ntp-server", "time.example.com")
+        self.save("#save-device")
         self.tab("config")
         with self.page.expect_download() as download:
             self.page.locator("#export-yaml").click()
@@ -961,8 +991,7 @@ class ConfigBrowserTest(BrowserTest):
         coordinate.fill("-12.5")
         coordinate.dispatch_event("change")
         self.assertEqual(self.widgets()[0]["latitude"], -12.5)
-        self.page.locator("#save").click()
-        self.page.wait_for_function("!displayDirty")
+        self.save("#save")
         saved = self.config()["screen"]["pages"][0]["widgets"][0]
         self.assertEqual(saved["latitude"], -12.5)
         self.assertEqual(len(requests), 1)

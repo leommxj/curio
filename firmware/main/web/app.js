@@ -19,7 +19,8 @@ let token = sessionStorage.getItem("curio-token") || "",
   configDocument,
   configEtag = "",
   yamlText = "",
-  yamlDirty = false,
+  draftSource = "synced",
+  certificateHostname = "curio",
   display,
   device,
   network,
@@ -30,13 +31,15 @@ let token = sessionStorage.getItem("curio-token") || "",
   selectedWidget = "",
   polling = false,
   pollTimer,
-  displayDirty = false,
-  deviceDirty = false,
-  alertsDirty = false,
   message = "",
   pollError = "",
   gesture = null;
 const layoutHistory = [];
+const dirtySections = new Set();
+function markDirty(section) {
+  dirtySections.add(section);
+  draftSource = section === "config" ? "yaml" : "forms";
+}
 const minimum = (type) => widgetTypes[type]?.minimum;
 const clone = (value) => structuredClone(value);
 function validRect(w) {
@@ -89,7 +92,7 @@ function rememberLayout() {
     display: clone(display),
     selected,
     selectedWidget,
-    dirty: displayDirty,
+    dirty: dirtySections.has("screen"),
   });
   if (layoutHistory.length > 30) layoutHistory.shift();
   const undo = $("#undo-layout");
@@ -176,10 +179,10 @@ function updateStatus() {
   $("#status").textContent = [
     message,
     pollError,
-    yamlDirty ? "配置未保存" : "",
-    displayDirty ? "屏幕未保存" : "",
-    deviceDirty ? "设备未保存" : "",
-    alertsDirty ? "提醒未保存" : "",
+    dirtySections.has("config") ? "配置未保存" : "",
+    dirtySections.has("screen") ? "屏幕未保存" : "",
+    dirtySections.has("device") ? "设备未保存" : "",
+    dirtySections.has("alerts") ? "提醒未保存" : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -189,7 +192,7 @@ function status(s) {
   updateStatus();
 }
 function markDisplayDirty() {
-  displayDirty = true;
+  markDirty("screen");
   status("");
 }
 
@@ -298,20 +301,8 @@ const checkNumber = (value, label, min, max, integer = true) => {
 };
 const checkIdentifier = (value, label) => checkString(value, label, 48, true);
 
-function validateDisplay() {
-  if (display.pages.length < 1 || display.pages.length > 4)
-    throw Error("须有 1–4 个页面");
-  for (const p of display.pages) {
-    validateLayout(p);
-    checkString(p.title, "页面名称", 48, false, true);
-    for (const w of p.widgets) {
-      checkString(w.title, "Widget 标题", 48, false, true);
-      widgetTypes[w.type].validate(w, checkString);
-    }
-  }
-}
 function dirty() {
-  return yamlDirty || displayDirty || deviceDirty || alertsDirty;
+  return dirtySections.size > 0;
 }
 function parseConfig(source) {
   const value = jsyaml.load(source, { schema: jsyaml.JSON_SCHEMA });
@@ -348,23 +339,9 @@ function parseConfig(source) {
   if (value.network !== undefined) {
     keys(value.network, ["wifi", "hostname"], "network");
     if (value.network.wifi !== undefined) {
-      if (!Array.isArray(value.network.wifi) || value.network.wifi.length > 4)
-        throw Error("network.wifi 须为最多 4 个网络的列表");
-      const seen = new Set();
-      for (const [i, wifi] of value.network.wifi.entries()) {
-        const path = `network.wifi[${i}]`;
-        keys(wifi, ["ssid", "password"], path);
-        if (typeof wifi.ssid !== "string" || bytes(wifi.ssid) < 1 || bytes(wifi.ssid) > 32)
-          throw Error(`${path}.ssid 须为 1–32 字节`);
-        if (seen.has(wifi.ssid)) throw Error(`Wi-Fi 名称重复: ${wifi.ssid}`);
-        seen.add(wifi.ssid);
-        if (wifi.password !== undefined &&
-          (typeof wifi.password !== "string" ||
-            (wifi.password !== "" &&
-              !((bytes(wifi.password) >= 8 && bytes(wifi.password) <= 63) ||
-                /^[0-9a-fA-F]{64}$/.test(wifi.password)))))
-          throw Error(`${path}.password 须为 8–63 字节或 64 位十六进制 PSK`);
-      }
+      validateWifi(value.network.wifi);
+      for (const [i, wifi] of value.network.wifi.entries())
+        keys(wifi, ["ssid", "password"], `network.wifi[${i}]`);
     }
   }
   if (value.tls !== undefined)
@@ -401,8 +378,11 @@ function parseConfig(source) {
         title: "string",
         ...module.types,
       });
-      module.validate({ ...module.defaults(), ...widget }, checkString);
+      const normalized = { ...module.defaults(), ...widget };
+      checkString(normalized.title ?? "", "Widget 标题", 48, false, true);
+      module.validate(normalized, checkString);
     }
+    checkString(page.title ?? page.id, "页面名称", 48, false, true);
     validateLayout(page);
   }
   if (value.screen.pages.length > 4) throw Error("最多 4 个页面");
@@ -414,7 +394,15 @@ function parseConfig(source) {
       ["volume", "vibration_strength", "flash_enabled", "rules"],
       "alerts",
     );
-  for (const [i, rule] of (value.alerts?.rules ?? []).entries()) {
+  const rules = value.alerts?.rules ?? [];
+  if (rules.length > 8) throw Error("最多 8 条规则");
+  const ruleIds = new Set();
+  for (const [i, rule] of rules.entries()) {
+    const id = rule.id ?? `rule-${i + 1}`;
+    checkIdentifier(id, "规则 ID");
+    if (ruleIds.has(id)) throw Error("规则 ID 重复");
+    ruleIds.add(id);
+    checkNumber(rule.duration ?? 10, "显示时间", 0, 300);
     const module = alertTypes[rule?.type];
     if (!module) throw Error(`提醒类型无效: ${rule?.type}`);
     const fields = Object.keys(module.types);
@@ -499,13 +487,9 @@ function parseConfig(source) {
     ![0, 90, 180, 270].includes(value.device.rotation)
   )
     throw Error("device.rotation 须为 0、90、180 或 270");
-  if (
-    value.alerts?.vibration_strength !== undefined &&
-    (!Number.isInteger(value.alerts.vibration_strength) ||
-      value.alerts.vibration_strength < 0 ||
-      value.alerts.vibration_strength > 100)
-  )
-    throw Error("alerts.vibration_strength 须为 0–100 的整数");
+  checkNumber(value.device?.brightness ?? 75, "亮度", 0, 100);
+  checkNumber(value.alerts?.volume ?? 35, "音量", 0, 100);
+  checkNumber(value.alerts?.vibration_strength ?? 60, "alerts.vibration_strength", 0, 100);
   return value;
 }
 function loadFormConfig(value) {
@@ -544,18 +528,20 @@ function loadFormConfig(value) {
     })),
   };
   network = { hostname: "curio", wifi: [], ...clone(value.network ?? {}) };
+  configDocument = { ...value, screen: display, device, network, alerts };
+  certificateHostname = network.hostname;
   selected = Math.max(0, Math.min(selected, display.pages.length - 1));
 }
-function configFromForms() {
-  const result = {
+function syncFormYaml() {
+  if (draftSource !== "forms") return;
+  if (network.hostname !== certificateHostname) delete configDocument.tls;
+  yamlText = jsyaml.dump({
     ...configDocument,
     device: {
       brightness: device.brightness,
       rotation: device.rotation,
       auto_rotate: device.auto_rotate,
-      ...(device.ntp_server !== "pool.ntp.org"
-        ? { ntp_server: device.ntp_server }
-        : {}),
+      ...(device.ntp_server !== "pool.ntp.org" ? { ntp_server: device.ntp_server } : {}),
     },
     network: {
       wifi: network.wifi.map(({ ssid, password }) => ({
@@ -564,39 +550,17 @@ function configFromForms() {
       })),
       ...(network.hostname !== "curio" ? { hostname: network.hostname } : {}),
     },
-    screen: {
-      default_page: display.default_page,
-      pages: display.pages.map((p) => ({
-        id: p.id,
-        title: p.title,
-        widgets: clone(p.widgets),
-      })),
-    },
-    alerts: {
-      volume: alerts.volume,
-      vibration_strength: alerts.vibration_strength,
-      flash_enabled: alerts.flash_enabled,
-      rules: clone(alerts.rules),
-    },
-  };
-  if (network.hostname !== (configDocument.network?.hostname ?? "curio"))
-    delete result.tls;
-  return result;
-}
-function syncFormYaml() {
-  if (!displayDirty && !deviceDirty && !alertsDirty) return;
-  configDocument = configFromForms();
-  yamlText = jsyaml.dump(configDocument, {
+  }, {
     noRefs: true,
     lineWidth: -1,
     sortKeys: false,
   });
+  draftSource = "synced";
 }
 function applyRawDraft() {
   const parsed = parseConfig(yamlText);
   Object.values(widgetTypes).forEach((module) => module.clear?.());
   loadFormConfig(parsed);
-  configDocument = parsed;
 }
 async function configRequest(method = "GET", path = "config", body) {
   const headers = { Authorization: "Bearer " + token };
@@ -633,12 +597,12 @@ async function configRequest(method = "GET", path = "config", body) {
     const etag = response.headers.get("ETag");
     if (!etag) throw Error("响应缺少 ETag");
     loadFormConfig(parsed);
-    configDocument = parsed;
     yamlText = source;
     configEtag = etag;
     token = parsed.access.admin_token;
     sessionStorage.setItem("curio-token", token);
-    displayDirty = deviceDirty = alertsDirty = yamlDirty = false;
+    dirtySections.clear();
+    draftSource = "synced";
     layoutHistory.length = 0;
     Object.values(widgetTypes).forEach((module) => module.clear?.());
   } finally {
@@ -648,14 +612,6 @@ async function configRequest(method = "GET", path = "config", body) {
 async function saveConfig() {
   syncFormYaml();
   applyRawDraft();
-  validateDisplay();
-  validateAlerts();
-  if (
-    !Number.isInteger(device.brightness) ||
-    device.brightness < 0 ||
-    device.brightness > 100
-  )
-    throw Error("亮度须为 0–100");
   if (new TextEncoder().encode(yamlText).length > 16384)
     throw Error("配置超过 16 KiB");
   await configRequest("PUT", "config", yamlText);
@@ -676,9 +632,9 @@ function renderConfig() {
 document.addEventListener("input", (event) => {
   if (event.target.id !== "yaml-editor") return;
   yamlText = event.target.value;
-  yamlDirty = true;
+  dirtySections.clear();
+  markDirty("config");
   layoutHistory.length = 0;
-  displayDirty = deviceDirty = alertsDirty = false;
   $("#save-admin-token").disabled = $("#generate-collector-token").disabled =
     true;
   status("");
@@ -690,9 +646,9 @@ document.addEventListener("change", async (event) => {
   try {
     if (dirty() && !confirm("导入并放弃未保存修改？")) return;
     yamlText = await file.text();
-    yamlDirty = true;
+    dirtySections.clear();
+    markDirty("config");
     layoutHistory.length = 0;
-    displayDirty = deviceDirty = alertsDirty = false;
     renderConfig();
     applyRawDraft();
     renderPreview();
@@ -736,7 +692,6 @@ async function connect() {
     const loadedState = await fetchState();
     resetAutoPage();
     state = loadedState;
-    displayDirty = deviceDirty = alertsDirty = false;
     pollError = "";
     sessionStorage.setItem("curio-token", token);
     $("#login").hidden = true;
@@ -889,24 +844,6 @@ function renderAlerts() {
   $("#editor").innerHTML =
     `<section class="panel"><div class="actions editor-heading"><h2>提醒</h2><button id="reload-alerts">重新加载</button><button id="save-alerts">保存</button></div><div class="fields">${alertNumber("音量", "volume", alerts.volume, 0, 100)}${alertNumber("振动强度（0 为关闭）", "vibration_strength", alerts.vibration_strength, 0, 100)}</div><label class="switch-field"><input type="checkbox" data-alert-field="flash_enabled" ${alerts.flash_enabled ? "checked" : ""}><span>闪光灯</span></label><div class="section-label components-heading">规则<span>${alerts.rules.length} / 8</span></div>${alerts.rules.map(alertRuleEditor).join("")}${alerts.rules.length < 8 ? '<button class="add-alert" id="add-alert">＋ 添加规则</button>' : ""}</section>`;
 }
-function validateAlerts() {
-  checkNumber(alerts.volume, "音量", 0, 100);
-  checkNumber(alerts.vibration_strength, "振动强度", 0, 100);
-  if (typeof alerts.flash_enabled !== "boolean")
-    throw Error("闪光灯须为布尔值");
-  if (alerts.rules.length > 8) throw Error("最多 8 条规则");
-  if (new Set(alerts.rules.map((r) => r.id)).size !== alerts.rules.length)
-    throw Error("规则 ID 重复");
-  for (const rule of alerts.rules) {
-    checkIdentifier(rule.id, "规则 ID");
-    const module = alertTypes[rule.type];
-    if (!module) throw Error("规则类型错误");
-    module.validate(rule, { id: checkIdentifier, number: checkNumber });
-    checkNumber(rule.duration, "显示时间", 0, 300);
-    if (typeof rule.vibrate !== "boolean") throw Error("振动须为布尔值");
-    if (typeof rule.flash !== "boolean") throw Error("闪光须为布尔值");
-  }
-}
 let alertSerial = 0;
 function addAlert() {
   const id = "alert" + Date.now().toString(36) + (++alertSerial).toString(36);
@@ -922,7 +859,7 @@ function addAlert() {
     flash: false,
   });
   openAlerts.add(id);
-  alertsDirty = true;
+  markDirty("alerts");
   status("");
   renderEditor();
 }
@@ -1161,7 +1098,7 @@ document.addEventListener("change", (e) => {
     else if (t.type === "number")
       rule[key] = t.value === "" ? NaN : Number(t.value);
     else rule[key] = t.value.trim();
-    alertsDirty = true;
+    markDirty("alerts");
     status("");
     if (key === "type") renderEditor();
     else if (rule !== alerts) {
@@ -1172,7 +1109,7 @@ document.addEventListener("change", (e) => {
   }
   if (t.id === "ntp-server") {
     device.ntp_server = t.value.trim();
-    deviceDirty = true;
+    markDirty("device");
     status("");
     return;
   }
@@ -1182,8 +1119,8 @@ document.addEventListener("change", (e) => {
     else network.hostname = t.value.trim();
     $("#download-certificate").disabled =
       !configDocument.tls?.certificate ||
-      network.hostname !== (configDocument.network?.hostname ?? "curio");
-    deviceDirty = true;
+      network.hostname !== certificateHostname;
+    markDirty("device");
     status("");
     return;
   }
@@ -1192,7 +1129,7 @@ document.addEventListener("change", (e) => {
       device.auto_rotate = t.checked;
       $("#rotation").disabled = t.checked;
     } else device[t.id] = Number(t.value);
-    deviceDirty = true;
+    markDirty("device");
     status("");
     return;
   }
@@ -1259,19 +1196,19 @@ document.addEventListener("click", async (e) => {
     } else if (t.id === "undo-layout") {
       const old = layoutHistory.pop();
       if (!old) return;
-      display = old.display;
+      display = configDocument.screen = old.display;
       selected = old.selected;
       selectedWidget = old.selectedWidget;
-      displayDirty = true;
+      markDirty("screen");
       syncFormYaml();
-      displayDirty = old.dirty;
+      if (!old.dirty) dirtySections.delete("screen");
       status("");
       render();
     } else if (t.id === "add-alert") addAlert();
     else if (t.hasAttribute("data-alert-remove")) {
       const removed = alerts.rules.splice(Number(t.dataset.alertRemove), 1)[0];
       openAlerts.delete(removed.id);
-      alertsDirty = true;
+      markDirty("alerts");
       status("");
       renderEditor();
     } else if (t.id === "save-alerts") {
@@ -1279,13 +1216,13 @@ document.addEventListener("click", async (e) => {
     } else if (t.id === "add-wifi") {
       if (network.wifi.length >= 4) return;
       network.wifi.push({ ssid: "", password: "" });
-      deviceDirty = true;
+      markDirty("device");
       status("");
       renderEditor();
       $(`.wifi-row[data-wifi-index="${network.wifi.length - 1}"] [data-wifi-field=ssid]`)?.focus();
     } else if (t.hasAttribute("data-wifi-remove")) {
       network.wifi.splice(Number(t.closest("[data-wifi-index]").dataset.wifiIndex), 1);
-      deviceDirty = true;
+      markDirty("device");
       status("");
       renderEditor();
     } else if (t.dataset.wifiMove) {
@@ -1293,7 +1230,7 @@ document.addEventListener("click", async (e) => {
       const j = i + (t.dataset.wifiMove === "up" ? -1 : 1);
       if (j < 0 || j >= network.wifi.length) return;
       [network.wifi[i], network.wifi[j]] = [network.wifi[j], network.wifi[i]];
-      deviceDirty = true;
+      markDirty("device");
       status("");
       renderEditor();
     } else if (t.id === "reload-alerts") {

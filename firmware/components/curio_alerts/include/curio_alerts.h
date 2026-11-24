@@ -57,7 +57,6 @@ const curio_alert_type_t *curio_alert_type_find(const char *id);
 bool curio_alert_config_clone(curio_alert_config_t *dst, const curio_alert_config_t *src);
 void curio_alert_config_free(curio_alert_config_t *config);
 bool curio_alert_rules_equal(const curio_alert_config_t *a, const curio_alert_config_t *b);
-bool curio_alert_config_equal(const curio_alert_config_t *a, const curio_alert_config_t *b);
 
 typedef struct curio_alerts curio_alerts_t;
 

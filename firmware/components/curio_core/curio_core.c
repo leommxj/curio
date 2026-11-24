@@ -11,7 +11,7 @@ static uint64_t elapsed(uint64_t now, uint64_t then)
     return now >= then ? now - then : 0;
 }
 
-static bool utf8_valid(const unsigned char *s, size_t len)
+bool curio_utf8_valid(const unsigned char *s, size_t len)
 {
     for (size_t i = 0; i < len;) {
         unsigned char c = s[i++];
@@ -169,7 +169,7 @@ static bool json_preflight(const char *s, size_t length)
 
 bool curio_json_valid(const char *s, size_t n)
 {
-    return s && n && utf8_valid((const unsigned char *)s, n) && json_preflight(s, n);
+    return s && n && curio_utf8_valid((const unsigned char *)s, n) && json_preflight(s, n);
 }
 static bool unique_fields(const cJSON *o)
 {
@@ -195,7 +195,7 @@ static bool copy_string(const cJSON *item, char *dest, size_t min, size_t max)
     if (!cJSON_IsString(item) || !item->valuestring)
         return false;
     size_t len = strlen(item->valuestring);
-    if (len < min || len > max || !utf8_valid((const unsigned char *)item->valuestring, len))
+    if (len < min || len > max || !curio_utf8_valid((const unsigned char *)item->valuestring, len))
         return false;
     memcpy(dest, item->valuestring, len + 1);
     return true;
@@ -353,7 +353,7 @@ curio_result_t curio_core_parse(const curio_core_t *c, const char *body, size_t 
     *out = NULL;
     if (length > CURIO_MAX_BODY_BYTES)
         return CURIO_TOO_LARGE;
-    if (!body || !length || !utf8_valid((const unsigned char *)body, length) ||
+    if (!body || !length || !curio_utf8_valid((const unsigned char *)body, length) ||
         !json_preflight(body, length))
         return CURIO_INVALID;
     const char *end = NULL;

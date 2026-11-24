@@ -22,7 +22,7 @@ Export `curio_widget_<name>` (`curio_widget_type_t`) or `curio_alert_<name>` (`c
 
 Common code handles widget `id/type/title/at/size` and alert `id/type/enabled/duration/sound/vibrate/flash`. Callbacks receive the full mapping and handle their own fields. `parse` initializes the entire options structure, including padding, and validates it. `validate` also checks options changed through C APIs. `write` omits optional values equal to their defaults.
 
-Options contain plain values and fixed arrays. Common code allocates, copies, compares and frees them using `options_size`. Initialize `curio_config_t` to zero; parsing replaces it only on success. Use clone/free APIs for owned configurations. A structure assignment transfers ownership only when the source is cleared afterward.
+Options contain plain values and fixed arrays. Common code allocates, copies, compares and frees them using `options_size`. Initialize `curio_config_t` to zero; parsing replaces it only on success. Use the layout and alert clone/free APIs for their owned options, and `curio_config_free` for a full configuration. A structure assignment transfers ownership only when the source is cleared afterward.
 
 ## Widget views
 

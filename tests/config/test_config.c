@@ -55,6 +55,9 @@ static void test_roundtrip(void)
       "  - {type: metric_high, host: one, source: system.memory, key: usage_pct, unit: percent, threshold: 90, recover: 80}\n"
       "  - {type: host_offline, enabled: false}\n";
     assert(curio_config_parse(yaml, strlen(yaml), &config, NULL, 0));
+    char *emitted = curio_config_yaml(&config);
+    assert(emitted && strlen(emitted) < CURIO_CONFIG_MAX_BYTES);
+    assert(curio_config_parse(emitted, strlen(emitted), &config, NULL, 0));
     assert(config.alerts.rules[0].display_s == 0 && config.alerts.rules[0].vibrate && !config.alerts.rules[0].sound && !((agent_done_options_t *)config.alerts.rules[0].options)->include_idle && config.alerts.vibration_strength == 0);
     assert(config.alerts.flash_enabled && config.alerts.rules[0].flash && !config.alerts.rules[1].flash);
     assert(((metric_high_options_t *)config.alerts.rules[1].options)->hold_s == 60 && config.alerts.rules[1].display_s == 10);
@@ -62,17 +65,14 @@ static void test_roundtrip(void)
     const curio_widget_config_t *status = &config.display.pages[1].widgets[2];
     assert(status->type == curio_widget_type_find("status") && !strcmp(status->title, "Status"));
     assert(!strcmp(((curio_status_config_t *)status->options)->host_id, "one") && !strcmp(((curio_status_config_t *)status->options)->source_id, "service.api"));
-    curio_config_t *before = calloc(1, sizeof(*before));
-    assert(before);
-    assert(curio_config_clone(before, &config));
-    char *emitted = curio_config_yaml(&config);
-    assert(emitted && strlen(emitted) < CURIO_CONFIG_MAX_BYTES);
-    assert(curio_config_parse(emitted, strlen(emitted), &config, NULL, 0));
-    assert(curio_config_equal(before, &config));
+    const curio_agents_config_t *agents = config.display.pages[0].widgets[0].options;
+    assert(!strcmp(config.display.pages[0].title, "主页: 状态") && !strcmp(agents->source_id, "custom") && agents->host_count == 2 && !agents->auto_page);
+    assert(!strcmp(agents->project, "true") && !strcmp(agents->agent, "123") && agents->filter == CURIO_FILTER_ATTENTION);
+    char *again = curio_config_yaml(&config);
+    assert(again && !strcmp(emitted, again));
+    cJSON_free(again);
     assert(strstr(emitted, "duration: 0") && !strstr(emitted, "duration: 10"));
     cJSON_free(emitted);
-    curio_config_free(before);
-    free(before);
 }
 static bool parse_extra(const char *suffix)
 {
@@ -89,12 +89,12 @@ static bool parse_extra(const char *suffix)
 }
 static void reject(const char *suffix)
 {
-    curio_config_t *before = calloc(1, sizeof(*before));
-    assert(before && curio_config_clone(before, &config));
-    assert(!parse_extra(suffix));
-    assert(curio_config_equal(before, &config));
-    curio_config_free(before);
-    free(before);
+    char *before = curio_config_yaml(&config);
+    assert(before && !parse_extra(suffix));
+    char *again = curio_config_yaml(&config);
+    assert(again && !strcmp(before, again));
+    cJSON_free(before);
+    cJSON_free(again);
 }
 static void test_invalid(void)
 {
@@ -119,6 +119,24 @@ static void test_invalid(void)
       "access: {admin_token: abcdefghijklmnop, collector_token: abcdefghijklmnop}\nscreen: {pages: [{id: p, widgets: [{type: agents, unknown: true}]}]}\n"
     };
     for (size_t i = 0; i < sizeof(invalid) / sizeof(*invalid); i++) assert(!curio_config_parse(invalid[i], strlen(invalid[i]), &config, NULL, 0));
+    const char *tokens[] = {"short", "abcdefgh ijklmnop", "abcdefghijklmno\x7f"};
+    for (size_t i = 0; i < sizeof(tokens) / sizeof(*tokens); i++) {
+        strcpy(config.access.admin_token, tokens[i]);
+        assert(!curio_config_yaml(&config));
+    }
+    assert(curio_config_parse(minimal, strlen(minimal), &config, NULL, 0));
+    curio_widget_config_t *widget = &config.display.pages[0].widgets[0];
+    const curio_widget_type_t *registered = widget->type;
+    curio_widget_type_t unknown = *registered;
+    unknown.id = "unregistered";
+    widget->type = &unknown;
+    assert(!curio_config_yaml(&config));
+    widget->type = registered;
+    const char *titles[] = {"\xff", "\xed\xa0\x80", "\xf4\x90\x80\x80"};
+    for (size_t i = 0; i < sizeof(titles) / sizeof(*titles); i++) {
+        strcpy(config.display.pages[0].title, titles[i]);
+        assert(!curio_config_yaml(&config));
+    }
 }
 
 static void test_network_tls(void)
@@ -140,17 +158,14 @@ static void test_network_tls(void)
            !strcmp(config.network.wifi[1].ssid, "Guest") && !*config.network.wifi[1].password);
     assert(!strcmp(config.network.hostname, "curio-desk"));
     assert(strstr(config.tls.certificate, "example-certificate\n"));
-    curio_config_t *before = calloc(1, sizeof(*before));
-    assert(before);
-    assert(curio_config_clone(before, &config));
     char *out = curio_config_yaml(&config);
     assert(out && strstr(out, "certificate: |") && strstr(out, "private_key: |") &&
            strstr(out, "wifi:\n") && strstr(out, "ssid: Guest"));
     assert(curio_config_parse(out, strlen(out), &config, NULL, 0));
-    assert(curio_config_equal(before, &config));
+    char *again = curio_config_yaml(&config);
+    assert(again && !strcmp(out, again));
+    cJSON_free(again);
     cJSON_free(out);
-    curio_config_free(before);
-    free(before);
 
     const char *invalid[] = {
         "network: null\n", "network: {ssid: old}\n", "network: {wifi: null}\n",
@@ -267,14 +282,16 @@ static void test_allocation_failure(void)
 {
     cJSON_Hooks hooks = {limited_alloc, free};
     for (unsigned i = 1; i <= 50; i++) {
-        curio_config_t before = {0};
-        assert(curio_config_clone(&before, &config));
+        char *before = curio_config_yaml(&config);
+        assert(before);
         allocations = 0; fail_at = i;
         cJSON_InitHooks(&hooks);
         bool ok = curio_config_parse(minimal, strlen(minimal), &config, NULL, 0);
         cJSON_InitHooks(NULL);
-        if (!ok) assert(curio_config_equal(&before, &config));
-        curio_config_free(&before);
+        char *again = curio_config_yaml(&config);
+        assert(again && (ok || !strcmp(before, again)));
+        cJSON_free(before);
+        cJSON_free(again);
     }
     assert(curio_config_parse(minimal, strlen(minimal), &config, NULL, 0));
     for (unsigned i = 1; i <= 50; i++) {

@@ -201,7 +201,7 @@ def main():
             return body
 
         def do_GET(self):
-            files = {'/': ('index.html', 'text/html'), '/index.html': ('index.html', 'text/html'), '/style.css': ('style.css', 'text/css'), '/app.js': ('app.js', 'application/javascript'), '/vendor/js-yaml.min.js': ('vendor/js-yaml.min.js', 'application/javascript')}
+            files = {'/': ('index.html', 'text/html'), '/index.html': ('index.html', 'text/html'), '/style.css': ('style.css', 'text/css'), '/app.js': ('app.js', 'application/javascript'), '/wifi.js': ('wifi.js', 'application/javascript'), '/vendor/js-yaml.min.js': ('vendor/js-yaml.min.js', 'application/javascript')}
             if self.path in files:
                 name, mime = files[self.path]
                 self.respond(200, ((generate()['output'] if name in ('app.js', 'style.css') else WEB) / name).read_bytes(), mime + '; charset=utf-8')

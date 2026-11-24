@@ -9,7 +9,7 @@ idf_component_register(
 set(web_header "${CMAKE_CURRENT_BINARY_DIR}/curio_web_assets.h")
 add_custom_command(OUTPUT "${web_header}"
     COMMAND ${PYTHON} "${PROJECT_DIR}/../scripts/firmware/embed_web.py" "${CMAKE_CURRENT_SOURCE_DIR}/web" "${web_header}" --modules "${CURIO_MODULE_BUILD}"
-    DEPENDS ${CURIO_MODULE_INPUTS} "${PROJECT_DIR}/../scripts/firmware/embed_web.py" web/index.html web/style.css web/app.js web/setup.html web/setup.js web/vendor/js-yaml.min.js)
+    DEPENDS ${CURIO_MODULE_INPUTS} "${PROJECT_DIR}/../scripts/firmware/embed_web.py" web/index.html web/style.css web/app.js web/setup.html web/setup.js web/wifi.js web/vendor/js-yaml.min.js)
 add_custom_target(curio_web_assets DEPENDS "${web_header}")
 add_dependencies(${COMPONENT_LIB} curio_web_assets)
 target_include_directories(${COMPONENT_LIB} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")

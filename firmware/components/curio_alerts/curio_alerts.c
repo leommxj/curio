@@ -53,13 +53,6 @@ bool curio_alert_rules_equal(const curio_alert_config_t *a, const curio_alert_co
     return true;
 }
 
-bool curio_alert_config_equal(const curio_alert_config_t *a, const curio_alert_config_t *b)
-{
-    return a->revision == b->revision && a->volume == b->volume &&
-        a->vibration_strength == b->vibration_strength && a->flash_enabled == b->flash_enabled &&
-            curio_alert_rules_equal(a, b);
-}
-
 bool curio_alert_config_validate(const curio_alert_config_t *c)
 {
     if (!c || c->rule_count > CURIO_ALERT_MAX_RULES || c->volume > 100 ||

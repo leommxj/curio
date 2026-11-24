@@ -8,7 +8,6 @@ let preserveDraft = false;
 let wifiDraft = [];
 let sourceWifi = [];
 let selectedWifi = 0;
-const bytes = value => new TextEncoder().encode(value).length;
 
 function setBusy(busy) {
   for (const field of form.querySelectorAll("input, select, button")) field.disabled = busy;
@@ -38,19 +37,6 @@ function fillFields(value) {
   selectedWifi = 0;
   renderWifi();
   document.querySelector("#hostname").value = value.network?.hostname || "curio";
-}
-
-function validateWifi(list) {
-  if (list.length > 4) throw Error("最多添加 4 个 Wi-Fi 网络");
-  const names = new Set();
-  for (const [i, wifi] of list.entries()) {
-    if (bytes(wifi.ssid) < 1 || bytes(wifi.ssid) > 32)
-      throw Error(`网络 ${i + 1} 名称须为 1–32 字节`);
-    if (names.has(wifi.ssid)) throw Error(`Wi-Fi 名称重复: ${wifi.ssid}`);
-    names.add(wifi.ssid);
-    if (wifi.password && !((bytes(wifi.password) >= 8 && bytes(wifi.password) <= 63) || /^[0-9a-fA-F]{64}$/.test(wifi.password)))
-      throw Error(`网络 ${i + 1} 密码须为 8–63 字节或 64 位十六进制 PSK`);
-  }
 }
 
 function mergedDraft(remote) {

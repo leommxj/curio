@@ -99,6 +99,7 @@ typedef struct {
     curio_allocator_t allocator;
 } curio_core_t;
 typedef struct curio_snapshot curio_snapshot_t;
+bool curio_utf8_valid(const unsigned char *, size_t);
 bool curio_json_valid(const char *, size_t);
 void curio_core_init_allocator(curio_core_t *, curio_allocator_t);
 void curio_core_destroy(curio_core_t *);

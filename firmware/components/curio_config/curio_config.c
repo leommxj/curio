@@ -94,11 +94,17 @@ done:
     return root;
 }
 
+static bool token_valid(const char *value)
+{
+    size_t size = strnlen(value, 129);
+    if (size < 16 || size == 129) return false;
+    for (size_t i = 0; i < size; i++) if ((unsigned char)value[i] < 33 || (unsigned char)value[i] > 126) return false;
+    return true;
+}
+
 static bool token(const cJSON *o, const char *key, char *out)
 {
-    if (!curio_string(o, key, out, 129, NULL) || strlen(out) < 16) return false;
-    for (const unsigned char *p = (const unsigned char *)out; *p; p++) if (*p < 33 || *p > 126) return false;
-    return true;
+    return curio_string(o, key, out, 129, NULL) && token_valid(out);
 }
 
 static bool pair(const cJSON *o, const char *key, unsigned limit, unsigned *first, unsigned *second)
@@ -353,7 +359,7 @@ static cJSON *config_tree(const curio_config_t *c)
             const curio_widget_config_t *w = &p->widgets[j];
             cJSON *widget = cJSON_CreateObject();
             if (!widget || !cJSON_AddItemToArray(widgets, widget)) { cJSON_Delete(widget); goto fail; }
-            if (!curio_put_string(widget, "id", w->id) || !curio_put_string(widget, "type", w->type->id) ||
+            if (!curio_widget_type_find(w->type->id) || !curio_put_string(widget, "id", w->id) || !curio_put_string(widget, "type", w->type->id) ||
                 (strcmp(w->title, w->type->title) && !curio_put_string(widget, "title", w->title)) ||
                 !put_pair(widget, "at", w->col, w->row) || !put_pair(widget, "size", w->cols, w->rows) ||
                 !w->type->write(widget, w->options)) goto fail;
@@ -390,6 +396,7 @@ static int write_yaml(void *data, unsigned char *buffer, size_t size)
 }
 static bool emit_scalar(yaml_emitter_t *emitter, const char *s, bool string_value)
 {
+    if (!curio_utf8_valid((const unsigned char *)s, strlen(s))) return false;
     yaml_event_t event;
     yaml_scalar_style_t style = YAML_PLAIN_SCALAR_STYLE;
     if (string_value) {
@@ -423,7 +430,8 @@ static bool emit_node(yaml_emitter_t *emitter, const cJSON *node)
     if (cJSON_IsString(node)) {
         if (node->string && (!strcmp(node->string, "certificate") || !strcmp(node->string, "private_key"))) {
             yaml_event_t scalar;
-            return yaml_scalar_event_initialize(&scalar, NULL, NULL, (const unsigned char *)node->valuestring,
+            return curio_utf8_valid((const unsigned char *)node->valuestring, strlen(node->valuestring)) &&
+                yaml_scalar_event_initialize(&scalar, NULL, NULL, (const unsigned char *)node->valuestring,
                 (int)strlen(node->valuestring), 1, 1, YAML_LITERAL_SCALAR_STYLE) && yaml_emitter_emit(emitter, &scalar);
         }
         return emit_scalar(emitter, node->valuestring, true);
@@ -440,7 +448,8 @@ char *curio_config_yaml(const curio_config_t *config)
 {
     if (!config || curio_layout_validate(&config->display) != CURIO_OK || config->device.brightness > 100 ||
         config->device.rotation > 270 || config->device.rotation % 90) return NULL;
-    if (!ntp_server_valid(config->device.ntp_server)) return NULL;
+    if (!token_valid(config->access.admin_token) || !token_valid(config->access.collector_token) ||
+        !ntp_server_valid(config->device.ntp_server)) return NULL;
     if (!network_config_valid(&config->network) || !tls_config_valid(&config->tls)) return NULL;
     if (!curio_alert_config_validate(&config->alerts)) return NULL;
     cJSON *tree = config_tree(config);
@@ -457,13 +466,7 @@ char *curio_config_yaml(const curio_config_t *config)
         !yaml_document_start_event_initialize(&event, NULL, NULL, NULL, 1) || !yaml_emitter_emit(&emitter, &event) ||
         !emit_node(&emitter, tree) || !yaml_document_end_event_initialize(&event, 1) || !yaml_emitter_emit(&emitter, &event) ||
         !yaml_stream_end_event_initialize(&event) || !yaml_emitter_emit(&emitter, &event)) goto done;
-    curio_config_t *verified = cJSON_malloc(sizeof(*verified));
-    if (verified) {
-        memset(verified, 0, sizeof(*verified));
-        ok = curio_config_parse(out.data, out.size, verified, NULL, 0);
-        curio_config_free(verified);
-        cJSON_free(verified);
-    }
+    ok = true;
 done:
     if (initialized) yaml_emitter_delete(&emitter);
     cJSON_Delete(tree);
@@ -476,21 +479,4 @@ void curio_config_free(curio_config_t *config)
     curio_layout_free(&config->display);
     curio_alert_config_free(&config->alerts);
     memset(config, 0, sizeof(*config));
-}
-bool curio_config_clone(curio_config_t *dst, const curio_config_t *src)
-{
-    *dst = *src;
-    memset(&dst->display, 0, sizeof(dst->display));
-    memset(&dst->alerts, 0, sizeof(dst->alerts));
-    if (curio_layout_clone(&dst->display, &src->display) && curio_alert_config_clone(&dst->alerts, &src->alerts)) return true;
-    curio_config_free(dst);
-    return false;
-}
-bool curio_config_equal(const curio_config_t *a, const curio_config_t *b)
-{
-    return !memcmp(&a->device, &b->device, sizeof(a->device)) &&
-        !memcmp(&a->access, &b->access, sizeof(a->access)) &&
-        !memcmp(&a->network, &b->network, sizeof(a->network)) &&
-        !memcmp(&a->tls, &b->tls, sizeof(a->tls)) &&
-        curio_layout_equal(&a->display, &b->display) && curio_alert_config_equal(&a->alerts, &b->alerts);
 }

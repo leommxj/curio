@@ -30,7 +30,7 @@
           key: m.key,
           unit: m.unit,
         });
-        alertsDirty = true;
+        markDirty("alerts");
         status("");
         renderEditor();
         return true;

@@ -329,6 +329,7 @@ static esp_err_t start_server(const curio_tls_config_t *tls)
         {.uri = "/index.html", .method = HTTP_GET, .handler = web_handler},
         {.uri = "/style.css", .method = HTTP_GET, .handler = web_handler},
         {.uri = "/app.js", .method = HTTP_GET, .handler = web_handler},
+        {.uri = "/wifi.js", .method = HTTP_GET, .handler = web_handler},
         {.uri = "/api/v2/snapshot", .method = HTTP_POST, .handler = snapshot_handler},
         {.uri = "/api/v2/state", .method = HTTP_GET, .handler = state_handler},
         {.uri = "/api/v2/catalog", .method = HTTP_GET, .handler = state_handler},
@@ -377,13 +378,14 @@ static esp_err_t start_setup_server(void)
     config.max_open_sockets = 2;
     config.lru_purge_enable = true;
     config.stack_size = 12288;
-    config.max_uri_handlers = 9;
+    config.max_uri_handlers = 10;
     esp_err_t result = httpd_start(&setup_server, &config);
     if (result != ESP_OK) return result;
     const httpd_uri_t routes[] = {
         {.uri = "/", .method = HTTP_GET, .handler = web_handler},
         {.uri = "/setup.html", .method = HTTP_GET, .handler = web_handler},
         {.uri = "/setup.js", .method = HTTP_GET, .handler = web_handler},
+        {.uri = "/wifi.js", .method = HTTP_GET, .handler = web_handler},
         {.uri = "/style.css", .method = HTTP_GET, .handler = web_handler},
         {.uri = "/vendor/js-yaml.min.js", .method = HTTP_GET, .handler = web_handler},
         {.uri = "/api/v2/setup", .method = HTTP_GET, .handler = config_handler},

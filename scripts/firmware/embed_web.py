@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from modules import generate
 bundle = generate(args.modules)['output']
-assets = [('vendor/js-yaml.min.js', 'application/javascript; charset=utf-8'), ('index.html', 'text/html; charset=utf-8'), ('style.css', 'text/css; charset=utf-8'), ('app.js', 'application/javascript; charset=utf-8'), ('setup.html', 'text/html; charset=utf-8'), ('setup.js', 'application/javascript; charset=utf-8')]
+assets = [('wifi.js', 'application/javascript; charset=utf-8'), ('vendor/js-yaml.min.js', 'application/javascript; charset=utf-8'), ('index.html', 'text/html; charset=utf-8'), ('style.css', 'text/css; charset=utf-8'), ('app.js', 'application/javascript; charset=utf-8'), ('setup.html', 'text/html; charset=utf-8'), ('setup.js', 'application/javascript; charset=utf-8')]
 lines = ['#pragma once', '#include <stdint.h>', '#include <stddef.h>',
          'typedef struct { const char *path, *type; const uint8_t *data; size_t size; } curio_web_asset_t;']
 for index, (name, _) in enumerate(assets):
