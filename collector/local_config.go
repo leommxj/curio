@@ -163,9 +163,6 @@ func loadLocalConfig(cfg config) (config, error) {
 			return cfg, fmt.Errorf("source %s timeout: %w", id, err)
 		}
 		if s.Module == "herdr" {
-			if len(s.Fields) > 0 {
-				return cfg, errors.New("herdr does not accept metric fields")
-			}
 			if s.Project == "" {
 				s.Project = "basename"
 			}

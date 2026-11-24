@@ -5,6 +5,7 @@
 #include "curio_layout.h"
 #include "curio_alerts.h"
 #define CURIO_CONFIG_MAX_BYTES 16384
+#define CURIO_WIFI_MAX_NETWORKS 4
 
 typedef struct {
     uint32_t revision;
@@ -14,7 +15,12 @@ typedef struct {
     char ntp_server[128];
 } curio_device_config_t;
 typedef struct { char admin_token[129], collector_token[129]; } curio_access_config_t;
-typedef struct { char ssid[33], password[64], hostname[33]; } curio_network_config_t;
+typedef struct { char ssid[33], password[65]; } curio_wifi_config_t;
+typedef struct {
+    char hostname[33];
+    curio_wifi_config_t wifi[CURIO_WIFI_MAX_NETWORKS];
+    size_t wifi_count;
+} curio_network_config_t;
 typedef struct { char certificate[2048], private_key[2048]; } curio_tls_config_t;
 typedef struct {
     curio_device_config_t device;

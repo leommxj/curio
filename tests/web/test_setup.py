@@ -57,7 +57,10 @@ class SetupBrowserTest(unittest.TestCase):
         self.revision = 1
         self.saved = []
         self.restarts = 0
+        self.resets = 0
+        self.fail_reset = False
         self.fail_next_save = False
+        self.remote_wifi_on_conflict = False
         self.fail_get = False
         self.errors = []
         self.page.on("pageerror", lambda error: self.errors.append(str(error)))
@@ -70,6 +73,14 @@ class SetupBrowserTest(unittest.TestCase):
     def api(self, route):
         request = route.request
         path = request.url.split("/api/v2/setup", 1)[1]
+        if path == "/reset":
+            self.assertEqual(request.method, "POST")
+            self.resets += 1
+            if self.fail_reset:
+                route.fulfill(status=503, json={"error": "reset failed"})
+            else:
+                route.fulfill(status=200, json={"ok": True})
+            return
         if path == "/restart":
             self.assertEqual(request.method, "POST")
             self.restarts += 1
@@ -82,12 +93,16 @@ class SetupBrowserTest(unittest.TestCase):
             if self.fail_next_save:
                 self.fail_next_save = False
                 self.source = self.source.replace("brightness: 75", "brightness: 60")
+                if self.remote_wifi_on_conflict:
+                    changed = self.page.evaluate("source => jsyaml.load(source)", self.source)
+                    changed["network"]["wifi"].append({"ssid": "Remote", "password": "remote-pass"})
+                    self.source = self.page.evaluate("value => jsyaml.dump(value)", changed)
                 self.revision += 1
                 route.fulfill(status=409, json={"error": "配置已变更"})
                 return
             config = self.page.evaluate("source => jsyaml.load(source)", request.post_data)
             self.saved.append(copy.deepcopy(config))
-            if config["network"]["ssid"] and "tls" not in config:
+            if config["network"]["wifi"] and "tls" not in config:
                 config["tls"] = {"certificate": CERT, "private_key": KEY}
             self.source = self.page.evaluate("config => jsyaml.dump(config)", config)
             self.revision += 1
@@ -114,7 +129,7 @@ class SetupBrowserTest(unittest.TestCase):
         self.page.locator("#save-setup").click()
         self.page.locator("#setup-saved").wait_for(state="visible")
         self.assertEqual(self.saved[0]["network"], {
-            "ssid": " Office Wi-Fi ", "password": "password123", "hostname": "curio-desk"})
+            "wifi": [{"ssid": " Office Wi-Fi ", "password": "password123"}], "hostname": "curio-desk"})
         self.assertEqual(self.saved[0]["device"]["brightness"], 75)
         self.assertEqual(self.saved[0]["alerts"]["volume"], 35)
         self.assertNotIn("tls", self.saved[0])
@@ -151,13 +166,14 @@ class SetupBrowserTest(unittest.TestCase):
         self.assertEqual(self.page.locator("#ssid").input_value(), "")
 
     def test_existing_config_preserved_and_failed_save_retried(self):
-        self.source = FIXTURE + "network: {ssid: Old Wi-Fi, password: old-password, hostname: curio}\n" + \
+        self.source = FIXTURE + "network: {wifi: [{ssid: Old Wi-Fi, password: old-password}, {ssid: Backup, password: backup-pass}], hostname: curio}\n" + \
             "tls: {certificate: 'certificate', private_key: 'key'}\n"
         self.open()
         self.assertEqual(self.page.locator("#ssid").input_value(), "Old Wi-Fi")
         self.assertEqual(self.page.locator("#password").input_value(), "old-password")
         self.page.locator("#hostname").fill("new-curio")
         self.fail_next_save = True
+        self.remote_wifi_on_conflict = True
         self.page.locator("#save-setup").click()
         self.page.wait_for_function("document.querySelector('#setup-status').textContent.includes('配置已变更')")
         self.assertTrue(self.page.locator("#setup-saved").is_hidden())
@@ -168,7 +184,8 @@ class SetupBrowserTest(unittest.TestCase):
         self.assertEqual(self.page.locator("#hostname").input_value(), "new-curio")
         self.page.locator("#save-setup").click()
         self.page.locator("#setup-saved").wait_for(state="visible")
-        self.assertEqual(self.saved[0]["network"]["password"], "old-password")
+        self.assertEqual(self.saved[0]["network"]["wifi"][0]["password"], "old-password")
+        self.assertEqual([wifi["ssid"] for wifi in self.saved[0]["network"]["wifi"]], ["Old Wi-Fi", "Backup", "Remote"])
         self.assertNotIn("tls", self.saved[0])
         self.assertEqual(self.saved[0]["device"]["brightness"], 60)
         self.assertEqual(self.saved[0]["access"]["admin_token"], "admin-token-123456789")
@@ -179,11 +196,31 @@ class SetupBrowserTest(unittest.TestCase):
         self.page.locator("#save-setup").click()
         self.page.locator("#setup-saved").wait_for(state="visible")
         self.assertFalse(self.page.locator("#restart").is_disabled())
-        self.assertEqual(self.saved[1]["network"]["password"], "")
+        self.assertEqual(self.saved[1]["network"]["wifi"][0]["password"], "")
         self.assertEqual(self.saved[1]["tls"]["certificate"], CERT)
 
+    def test_conflict_reload_after_all_networks_removed(self):
+        self.source = FIXTURE + "network: {wifi: [{ssid: Office, password: password123}]}\n"
+        self.open()
+        self.page.locator("#hostname").fill("curio-desk")
+        self.fail_next_save = True
+        self.page.locator("#save-setup").click()
+        self.page.wait_for_function("document.querySelector('#setup-status').textContent.includes('配置已变更')")
+        self.source = FIXTURE
+        self.page.locator("#reload-setup").click()
+        self.page.wait_for_function("etag === '\"2\"'")
+        self.assertEqual(self.page.locator("#wifi-select option").count(), 1)
+        self.assertEqual(self.page.locator("#ssid").input_value(), "")
+        self.assertEqual(self.page.locator("#hostname").input_value(), "curio-desk")
+        self.page.locator("#ssid").fill("New Wi-Fi")
+        self.page.locator("#password").fill("new-password")
+        self.page.locator("#save-setup").click()
+        self.page.locator("#setup-saved").wait_for(state="visible")
+        self.assertEqual(self.saved[0]["network"], {
+            "wifi": [{"ssid": "New Wi-Fi", "password": "new-password"}], "hostname": "curio-desk"})
+
     def test_default_hostname_keeps_existing_certificate(self):
-        self.source = FIXTURE + "network: {ssid: Office, password: password123}\n" + \
+        self.source = FIXTURE + "network: {wifi: [{ssid: Office, password: password123}]}\n" + \
             "tls: {certificate: old-certificate, private_key: old-key}\n"
         self.open()
         self.assertEqual(self.page.locator("#hostname").input_value(), "curio")
@@ -191,6 +228,63 @@ class SetupBrowserTest(unittest.TestCase):
         self.page.locator("#setup-saved").wait_for(state="visible")
         self.assertEqual(self.saved[0]["tls"],
                          {"certificate": "old-certificate", "private_key": "old-key"})
+
+    def test_edit_or_add_wifi_preserves_other_networks(self):
+        self.source = FIXTURE + "network:\n  hostname: curio\n  wifi:\n    - {ssid: First, password: first-pass}\n    - {ssid: Second, password: second-pass}\n"
+        self.open()
+        self.page.locator("#wifi-select").select_option("1")
+        self.assertEqual(self.page.locator("#ssid").input_value(), "Second")
+        self.page.locator("#password").fill("changed-pass")
+        self.page.locator("#add-setup-wifi").click()
+        self.page.locator("#ssid").fill("Third")
+        self.page.locator("#password").fill("a" * 64)
+        self.page.locator("#wifi-select").select_option("0")
+        self.assertEqual(self.page.locator("#ssid").input_value(), "First")
+        self.page.locator("#save-setup").click()
+        self.page.locator("#setup-saved").wait_for(state="visible")
+        self.assertEqual(self.saved[0]["network"]["wifi"], [
+            {"ssid": "First", "password": "first-pass"},
+            {"ssid": "Second", "password": "changed-pass"},
+            {"ssid": "Third", "password": "a" * 64},
+        ])
+
+    def test_wifi_validation(self):
+        self.open()
+        self.page.locator("#ssid").fill("Office")
+        self.page.locator("#password").fill("short")
+        self.page.locator("#save-setup").click()
+        self.assertIn("密码", self.page.locator("#setup-status").inner_text())
+        self.assertEqual(self.saved, [])
+        self.page.locator("#password").fill("password123")
+        self.page.locator("#add-setup-wifi").click()
+        self.page.locator("#ssid").fill("Office")
+        self.page.locator("#save-setup").click()
+        self.assertIn("重复", self.page.locator("#setup-status").inner_text())
+        self.assertEqual(self.saved, [])
+
+    def test_reset_confirmation_failure_and_retry(self):
+        self.open()
+        self.page.locator("#ssid").fill("Office")
+        self.page.once("dialog", lambda dialog: dialog.dismiss())
+        self.page.locator("#reset-device").click()
+        self.assertEqual(self.resets, 0)
+        self.assertEqual(self.page.locator("#ssid").input_value(), "Office")
+        self.fail_reset = True
+        self.page.once("dialog", lambda dialog: dialog.accept())
+        self.page.locator("#reset-device").click()
+        self.page.wait_for_function("document.querySelector('#setup-status').textContent.includes('reset failed')")
+        self.assertFalse(self.page.locator("#reset-device").is_disabled())
+        self.assertFalse(self.page.locator("#ssid").is_disabled())
+        self.assertEqual(self.page.locator("#ssid").input_value(), "Office")
+        self.fail_reset = False
+        self.page.once("dialog", lambda dialog: dialog.accept())
+        self.page.locator("#reset-device").click()
+        self.page.wait_for_function("document.querySelector('#setup-status').textContent.includes('重新连接热点')")
+        self.assertEqual(self.resets, 2)
+        self.assertTrue(self.page.locator("#setup-form").is_hidden())
+        self.assertTrue(self.page.locator("#setup-saved").is_hidden())
+        self.assertTrue(self.page.locator("#reset-device").is_disabled())
+        self.assertEqual(self.restarts, 0)
 
 
 if __name__ == "__main__":

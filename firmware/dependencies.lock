@@ -289,7 +289,7 @@ dependencies:
       require: private
       version: '>=5.1'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 2.15.0
   espressif/i2c_bus:
@@ -414,10 +414,11 @@ direct_dependencies:
 - espressif/esp_lcd_touch_cst9220
 - espressif/esp_lvgl_adapter
 - espressif/esp_tinyusb
+- espressif/freetype
 - espressif/mdns
 - espressif/spi_nand_flash
 - idf
 - lvgl/lvgl
-manifest_hash: 8a7a92454112eba166db0f18f2723a2e10a61682caa69ea97ccfee76a50b89b8
+manifest_hash: ddd4486b291ca2ab855f3878a129c8167444e29489742110090abc4b25b70624
 target: esp32s31
 version: 3.0.0

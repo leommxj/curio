@@ -15,13 +15,13 @@ static bool create(curio_widget_t *w)
     int width = rect.width - 20;
     bool narrow = config->cols == 1, short_row = config->rows == 1;
     curio_view_text(curio_view_label(w->box, 8, 6, narrow || !short_row ? rect.width - 16 : width / 2 - 8,
-        &lv_font_montserrat_14, CURIO_COLOR_MUTED), config->title);
+        &curio_font_14, CURIO_COLOR_MUTED), config->title);
     s->value = curio_view_label(w->box, narrow || !short_row ? 8 : rect.width / 2, narrow || !short_row ? 25 : 3,
-        narrow || !short_row ? rect.width - 16 : rect.width / 2 - 10, &lv_font_montserrat_26, CURIO_COLOR_FG);
+        narrow || !short_row ? rect.width - 16 : rect.width / 2 - 10, &curio_font_26, CURIO_COLOR_FG);
     if (short_row && !narrow) lv_obj_set_style_text_align(s->value, LV_TEXT_ALIGN_RIGHT, 0);
     if (!short_row || !narrow) {
         int y = short_row ? 40 : 60;
-        s->detail = curio_view_label(w->box, 8, y, rect.width - 16, &lv_font_montserrat_14, CURIO_COLOR_MUTED);
+        s->detail = curio_view_label(w->box, 8, y, rect.width - 16, &curio_font_14, CURIO_COLOR_MUTED);
         lv_label_set_long_mode(s->detail, short_row ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_WRAP);
         lv_obj_set_height(s->detail, rect.height - y - 6);
     }
@@ -45,8 +45,8 @@ static void render(curio_widget_t *w)
 {
     status_payload_t *s = w->data;
     lv_point_t size;
-    lv_text_get_size(&size, s->value_text, &lv_font_montserrat_26, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-    lv_obj_set_style_text_font(s->value, size.x > lv_obj_get_style_width(s->value, 0) ? &lv_font_montserrat_18 : &lv_font_montserrat_26, 0);
+    lv_text_get_size(&size, s->value_text, &curio_font_26, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    lv_obj_set_style_text_font(s->value, size.x > lv_obj_get_style_width(s->value, 0) ? &curio_font_18 : &curio_font_26, 0);
     lv_obj_set_style_text_color(s->value, lv_color_hex(s->color), 0);
     curio_view_text(s->value, s->value_text);
     if (s->detail) curio_view_text(s->detail, s->detail_text);

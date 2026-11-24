@@ -13,14 +13,16 @@ Install Make, Python 3.12+, curl, and the ESP-IDF revision in [dependencies.json
 make firmware
 ```
 
-`make firmware` fetches pinned dependencies into `.deps/`, checks the ESP-IDF revision, then invokes ESP-IDF to build the application and official update bundle. Output defaults to `build/firmware/curio-system-update.irisfw`; override `FIRMWARE_BUILD_DIR` to use another build directory. `make deps` downloads dependencies without building. Firmware images do not contain Wi-Fi credentials, tokens or TLS keys.
+`make firmware` fetches pinned dependencies into `.deps/`, checks the ESP-IDF revision, prepares the official Iris Python environment for packaging, then builds the application and update bundle. Output defaults to `build/firmware/curio-system-update.irisfw`; override `FIRMWARE_BUILD_DIR` to use another build directory. `make deps` downloads source dependencies without preparing the Python environment or building. Firmware images do not contain Wi-Fi credentials, tokens or TLS keys.
 
 ## First setup
 
-Install the firmware with `make flash`, then use one of these setup paths:
+Install the firmware with `make flash`.
 
-1. On an unconfigured device, join the `Curio-…` Wi-Fi network using the random password shown on the board. Open `http://192.168.4.1/setup.html`, enter the network SSID, password and hostname, then save. An empty Wi-Fi password selects an open network. Download the certificate and full YAML, then select **Connect** to restart the device. The setup page requires no separate login because its temporary AP has the displayed WPA2 password. Enter the address manually.
-2. For setup from a computer, install OpenSSL, run `make configure SSID="YourWiFi"` and then `make provision`. The latter writes the YAML over Iris, by USB or paired Wi-Fi, and restarts the device. Provisioning is accepted only while the device is unconfigured or its physical Setup AP is open. An ordinary network error never opens that AP. The configuration tool prompts for the Wi-Fi password; `ARGS="--password-env VARIABLE"` reads it from an environment variable, and `ARGS="--open-wifi"` selects an open network. Use `ARGS="--ip 192.168.1.50"` to include a device IP address in the certificate SAN.
+On first initialization, the device tries `wifi_ssid` and `wifi_password` from Vibe Mode's **Settings → Shared information** (`sysmeta/shared`). A successful connection is copied into Curio's YAML with generated TLS credentials. Missing or unusable shared settings open the Setup AP. Curio never writes to Vibe Mode's settings. After automatic connection, hold the AI button for three seconds to open setup and download the credentials, or provision from a computer while that AP is open.
+
+1. Join the `Curio-…` Wi-Fi network using the random password shown on the board. Open `http://192.168.4.1/setup.html`, enter the network SSID, password and hostname, then save. An empty Wi-Fi password selects an open network. Download the certificate and full YAML, then select **Connect** to restart the device. The setup page requires no separate login because its temporary AP has the displayed WPA2 password. Enter the address manually.
+2. For setup from a computer, install OpenSSL, run `make configure SSID="YourWiFi"` and then `make provision`. The latter writes the YAML over Iris, by USB or paired Wi-Fi, and restarts the device. Provisioning is accepted only while the device is unconfigured or its physical Setup AP is open. An ordinary network error never opens that AP. The configuration tool prompts for the Wi-Fi password; `ARGS="--password-env VARIABLE"` reads it from an environment variable, and `ARGS="--open-wifi"` selects an open network. Use `ARGS="--ip 192.168.1.50"` to include a device IP address in the certificate SAN. The generated YAML has one `network.wifi` entry; edit it to add up to four networks in connection order before provisioning.
 
 `make configure` creates `firmware/local/` and refuses to overwrite an existing directory. Its files are:
 
@@ -60,9 +62,13 @@ Recovery replaces the bootloader, partition table and some factory applications.
 
 ## Connection and troubleshooting
 
-The default mDNS name is `curio.local`. If mDNS is unavailable, use the short hostname through local DNS or an IP address included in the certificate SAN. Configure certificate trust separately for Collectors and browsers. After setup, the web **Device** tab can change Wi-Fi and hostname, save the configuration, download the current certificate and restart to apply network changes. Changing the hostname generates a new certificate; custom TLS values can be imported through the full YAML editor.
+The default mDNS name is `curio.local`. If mDNS is unavailable, use the short hostname through local DNS or an IP address included in the certificate SAN. Configure certificate trust separately for Collectors and browsers. The web **Device** tab can add, remove and reorder up to four Wi-Fi networks, change the hostname and download the certificate. Save and restart to apply network changes. Changing the hostname generates a new certificate; custom TLS values can be imported through the full YAML editor.
 
-If the saved Wi-Fi credentials are wrong, open **Settings → Wi-Fi** on the device to reopen the temporary Setup AP and correct them at `http://192.168.4.1/setup.html`.
+At startup, Curio tries networks in list order, allowing up to fifteen seconds per attempt and two seconds between attempts. After losing a connection it retries that network, then continues through the list. It stays on a working network and keeps retrying if all networks fail.
+
+While Curio is running, hold the AI button (GPIO7) for three seconds or tap **Settings → Wi-Fi** to start the Setup AP. Join the `Curio-…` network using the eight-digit password shown on the screen, then open `http://192.168.4.1`. Edit or add networks, save, and select **Connect** to restart with the saved settings. Opening setup preserves existing configuration and briefly reconnects the current Wi-Fi connection; **Close** stops the AP without restarting. Each AP session gets a new password. The BOOT button keeps its official recovery function.
+
+The setup page's **Reset Curio** button asks for confirmation, then restarts with default settings and new tokens. It clears saved Wi-Fi, certificates, layouts and alerts from both configuration slots. Firmware and Vibe Mode settings remain intact. After reset, the device opens its Setup AP without importing shared Wi-Fi; reconnect using the new password on the screen.
 
 `MOSAICO_UTILS_ROOT=/path/to/esp-mosaico-utils` selects an alternate checkout for the device-tool adapter; use the pinned revision.
 
@@ -72,17 +78,21 @@ Portable components separate data state (`curio_core`), YAML (`curio_config`), w
 
 Widget and alert implementations live in `firmware/modules/widgets/<type>/` and `firmware/modules/alerts/<type>/`. Each directory owns its configuration, runtime, web interface and tests. `firmware/modules/registry.json` is the build registry; see [modules.md](modules.md) for interfaces and extension steps.
 
-The `machine` widget binds fixed CPU/memory metrics. Agent widgets and completion alerts accept any source with `kind: agents`, defaulting to `herdr`.
-
-Page and rule counts have fixed limits. Type-specific options are allocated only for configured entries; only the active page creates LVGL views. Disabled rules retain their configuration but have no detection state. With no enabled rules, the application creates no alert runtime. Registered code and descriptors remain in the firmware image.
+Type-specific options are allocated only for configured entries; only the active page creates LVGL views. Disabled rules retain their configuration but have no detection state. With no enabled rules, the application creates no alert runtime.
 
 The display starts before networking. Wi-Fi reconnects after disconnection; existing data becomes stale or offline according to its age. Network parsing and validation run outside the application lock, with state committed under a short lock. Request bodies, parsed objects and source storage use PSRAM. Widgets share the UI task and are destroyed when changing pages.
 
-Clock widgets use the system clock, synchronized by ESP-IDF SNTP while any page contains a clock. The existing network task manages synchronization; no clock task is created. NTP server changes and Wi-Fi reconnection restart synchronization. Removing all clocks stops it. The device keeps time during network outages; before initial synchronization it shows `--:--`. Set the NTP server in the web Device tab and each clock's fixed UTC offset in its widget settings. Daylight-saving changes are manual.
+`curio_fonts` shares the Mosaico factory font across widgets and alerts. FreeType renders Chinese on demand with a bounded glyph cache; the embedded font and cached bitmaps use PSRAM. See [fonts](../firmware/components/curio_fonts/README.md) for coverage and licensing. Protocol text limits remain UTF-8 byte limits.
+
+Clock widgets use the system clock, synchronized by ESP-IDF SNTP while any page contains a clock or weather widget. The existing network task manages synchronization. NTP server changes and Wi-Fi reconnection restart synchronization. Removing all widgets that need time stops it. The device keeps time during network outages; before initial synchronization clocks show `--:--`. Set the NTP server in the web Device tab and each clock's fixed UTC offset in its widget settings. Daylight-saving changes are manual.
+
+Weather uses Open-Meteo over HTTPS after time synchronization. The network task advances one asynchronous request at a time; views only read cached values. A response uses a temporary 2 KiB buffer in PSRAM. Configured locations share caches by coordinates; removing a location frees its cache, and removing all weather widgets cancels any request. City search runs in the browser during configuration.
 
 Device, screen, alert, access, network and TLS settings use two YAML slots in application NVS. Boot selects the newer valid configuration. Snapshots, temporary filters, page changes and queued notifications do not write Flash. See the [protocol](protocol.md) for fields and limits.
 
-The top-right gear opens Settings: automatic rotation, automatic paging for Agent lists on the current page, brightness, volume, vibration strength, the global flash switch and a Wi-Fi button that opens or closes the temporary Setup AP. Differing list settings show `Mixed`; toggling applies to all lists on the page. Paging pauses while Settings is open. Switches save immediately; sliders save on release, with live brightness preview. Device brightness ranges from 5–100%; the web interface allows 0–100%, where zero can blank the display. Volume and vibration range from 0–100%, with zero disabling that output.
+Tap the page title at the top left to cycle through configured pages. Swiping an Agent list pages through that list; it does not switch screen pages.
+
+The top-right gear opens Settings: automatic rotation, automatic paging for Agent lists on the current page, brightness, volume, vibration strength, the global flash switch and Wi-Fi setup. Differing list settings show `Mixed`; toggling applies to all lists on the page. Paging pauses while Settings is open. Switches save immediately; sliders save on release, with live brightness preview. Device brightness ranges from 5–100%; the web interface allows 0–100%, where zero can blank the display. Volume and vibration range from 0–100%, with zero disabling that output.
 
 `Alerts` shows scrollable rule details; edit rules in the web interface. `Test alert` displays a ten-second popup using current output settings, including flash when globally enabled. A real notification replaces the test. The top sound and vibration buttons temporarily mute their respective outputs until reboot, including tests, without changing YAML. Popups and flash remain available. Tap the Wi-Fi icon to show status and IP for five seconds.
 

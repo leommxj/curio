@@ -8,6 +8,8 @@
 
 void *curio_alloc(size_t size);
 esp_err_t curio_settings_init(void);
+esp_err_t curio_settings_reset(void);
+esp_err_t curio_settings_adopt_wifi(const curio_network_config_t *);
 char *curio_settings_yaml(uint32_t *revision);
 esp_err_t curio_settings_import(const char *yaml, size_t size, uint32_t revision, char *error, size_t error_size);
 esp_err_t curio_settings_set_token(bool admin, const char *token);

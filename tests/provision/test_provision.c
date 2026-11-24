@@ -9,6 +9,7 @@ static uint8_t stored[2][CURIO_CONFIG_MAX_BYTES + 5];
 static size_t stored_size[2];
 static unsigned commits;
 static bool fail_write;
+static uint8_t reset_pending;
 static esp_iris_rpc_handler_t methods[4];
 static unsigned planned_restarts, scheduled_restarts;
 
@@ -53,6 +54,25 @@ esp_err_t nvs_set_blob(nvs_handle_t handle, const char *key, const void *value, 
     return ESP_OK;
 }
 esp_err_t nvs_commit(nvs_handle_t handle) { assert(handle == 1); commits++; return ESP_OK; }
+esp_err_t nvs_get_u8(nvs_handle_t handle, const char *key, uint8_t *value)
+{
+    assert(handle == 1 && !strcmp(key, "reset"));
+    *value = reset_pending;
+    return reset_pending ? ESP_OK : ESP_ERR_NVS_NOT_FOUND;
+}
+esp_err_t nvs_set_u8(nvs_handle_t handle, const char *key, uint8_t value)
+{
+    assert(handle == 1 && !strcmp(key, "reset"));
+    if (fail_write) return ESP_ERR_INVALID_STATE;
+    reset_pending = value;
+    return ESP_OK;
+}
+esp_err_t nvs_erase_key(nvs_handle_t handle, const char *key)
+{
+    assert(handle == 1 && !strcmp(key, "reset"));
+    reset_pending = 0;
+    return ESP_OK;
+}
 esp_err_t esp_iris_rpc_register(uint16_t service, uint16_t method, esp_iris_rpc_handler_t handler, void *ctx)
 {
     assert(service == 0x4355 && method >= 1 && method <= 3 && !methods[method] && !ctx);
@@ -98,7 +118,7 @@ static esp_err_t send_document(const char *yaml)
 static void yaml_config(char *out, size_t capacity, const char *ssid, const char *tls)
 {
     int n = snprintf(out, capacity,
-        "version: 1\nnetwork:\n  ssid: %s\n  password: passphrase\n  hostname: curio\n"
+        "version: 1\nnetwork:\n  wifi:\n    - ssid: %s\n      password: passphrase\n  hostname: curio\n"
         "%s"
         "access:\n  admin_token: abcdefghijklmnop\n  collector_token: abcdefghijklmnop\n"
         "screen:\n  pages:\n    - id: main\n      widgets:\n"
@@ -151,7 +171,7 @@ int main(void)
     assert(send_chunk(yaml, size, 1020, size - 1020) == ESP_OK);
     assert(call(2, NULL, 0) == ESP_OK);
     assert(commits == saved_commits + 1);
-    assert(!strcmp(curio_app.network.ssid, "Lab"));
+    assert(curio_app.network.wifi_count == 1 && !strcmp(curio_app.network.wifi[0].ssid, "Lab"));
     assert(!strcmp(curio_app.tls.certificate, "generated-cert"));
     assert(call(2, NULL, 0) == ESP_ERR_INVALID_STATE);
     free(initial);

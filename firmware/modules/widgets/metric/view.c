@@ -14,13 +14,13 @@ static bool create(curio_widget_t *w)
     bool narrow = config->cols == 1;
     int top = config->rows == 1 ? 0 : (rect.height - (narrow ? 78 : 61)) / 2;
     curio_view_text(curio_view_label(w->box, narrow ? 8 : 10, top + 6, narrow ? rect.width - 16 : width / 2 - 8,
-        &lv_font_montserrat_14, CURIO_COLOR_MUTED), config->title);
+        &curio_font_14, CURIO_COLOR_MUTED), config->title);
     m->value = curio_view_label(w->box, narrow ? 8 : rect.width / 2, top + (narrow ? 25 : 3),
-        narrow ? rect.width - 16 : rect.width / 2 - 10, &lv_font_montserrat_26, CURIO_COLOR_FG);
+        narrow ? rect.width - 16 : rect.width / 2 - 10, &curio_font_26, CURIO_COLOR_FG);
     if (!narrow) lv_obj_set_style_text_align(m->value, LV_TEXT_ALIGN_RIGHT, 0);
     if (!narrow || config->rows > 1)
         m->detail = curio_view_label(w->box, narrow ? 8 : 10, top + (narrow ? 58 : 40), narrow ? rect.width - 16 : width,
-            &lv_font_montserrat_14, CURIO_COLOR_MUTED);
+            &curio_font_14, CURIO_COLOR_MUTED);
     return true;
 }
 static void sample(curio_widget_t *w, const curio_widget_sample_t *ctx)

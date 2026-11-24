@@ -1,5 +1,6 @@
 #include "curio_app.h"
 #include "curio_sensors.h"
+#include "curio_buttons.h"
 #include "esp_check.h"
 #include "esp_timer.h"
 #include "esp_iris.h"
@@ -36,5 +37,6 @@ void app_main(void)
     if (result == ESP_OK) {
         curio_provision_start();
         curio_network_start();
+        ESP_ERROR_CHECK_WITHOUT_ABORT(curio_buttons_start());
     }
 }

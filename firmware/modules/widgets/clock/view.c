@@ -22,14 +22,14 @@ static bool create(curio_widget_t *w)
         else if (offset % 60) snprintf(title, sizeof(title), "Time (UTC%c%d:%02d)", sign, offset / 60, offset % 60);
         else snprintf(title, sizeof(title), "Time (UTC%c%d)", sign, offset / 60);
         lv_point_t size;
-        lv_text_get_size(&size, title, &lv_font_montserrat_14, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        lv_text_get_size(&size, title, &curio_font_14, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
         caption = size.x <= rect.width - 16 ? title : "Time";
     }
-    curio_view_text(curio_view_label(w->box, 8, 6, rect.width - 16, &lv_font_montserrat_14, CURIO_COLOR_MUTED), caption);
+    curio_view_text(curio_view_label(w->box, 8, 6, rect.width - 16, &curio_font_14, CURIO_COLOR_MUTED), caption);
     bool date = config->rows > 1;
     int available_height = rect.height - (date ? 56 : 28);
-    const lv_font_t *fonts[] = {&lv_font_montserrat_48, &lv_font_montserrat_32,
-        &lv_font_montserrat_26, &lv_font_montserrat_18, &lv_font_montserrat_14};
+    const lv_font_t *fonts[] = {&curio_font_48, &curio_font_32,
+        &curio_font_26, &curio_font_18, &curio_font_14};
     const lv_font_t *font = fonts[4];
     for (size_t i = 0; i < 5; i++) {
         lv_point_t size;
@@ -40,7 +40,7 @@ static bool create(curio_widget_t *w)
     c->time = curio_view_label(w->box, 8, y, rect.width - 16, font, CURIO_COLOR_FG);
     lv_obj_set_style_text_align(c->time, LV_TEXT_ALIGN_CENTER, 0);
     if (date) {
-        c->date = curio_view_label(w->box, 8, rect.height - 25, rect.width - 16, &lv_font_montserrat_14, CURIO_COLOR_MUTED);
+        c->date = curio_view_label(w->box, 8, rect.height - 25, rect.width - 16, &curio_font_14, CURIO_COLOR_MUTED);
         lv_obj_set_style_text_align(c->date, LV_TEXT_ALIGN_CENTER, 0);
     }
     return true;

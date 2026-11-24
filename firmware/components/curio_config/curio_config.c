@@ -129,16 +129,29 @@ static bool ntp_server_valid(const char *server)
 
 static bool network_config_valid(const curio_network_config_t *network)
 {
-    if (!network) return false;
-    size_t ssid = strnlen(network->ssid, sizeof(network->ssid));
-    size_t password = strnlen(network->password, sizeof(network->password));
+    if (!network || network->wifi_count > CURIO_WIFI_MAX_NETWORKS) return false;
     size_t hostname = strnlen(network->hostname, sizeof(network->hostname));
-    if (ssid > 32 || password > 63 || (password && password < 8) ||
-        !hostname || hostname > 32) return false;
+    if (!hostname || hostname > 32) return false;
     for (size_t i = 0; i < hostname; i++) {
         unsigned char c = network->hostname[i];
         if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
               (c >= '0' && c <= '9') || (c == '-' && i && i + 1 < hostname))) return false;
+    }
+    for (size_t i = 0; i < network->wifi_count; i++) {
+        const curio_wifi_config_t *wifi = &network->wifi[i];
+        size_t ssid = strnlen(wifi->ssid, sizeof(wifi->ssid));
+        size_t password = strnlen(wifi->password, sizeof(wifi->password));
+        if (!ssid || ssid > 32 || password == sizeof(wifi->password) ||
+            (password && password < 8)) return false;
+        if (password == 64) {
+            for (size_t j = 0; j < password; j++) {
+                char c = wifi->password[j];
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+                      (c >= 'A' && c <= 'F'))) return false;
+            }
+        }
+        for (size_t j = 0; j < i; j++)
+            if (!strcmp(wifi->ssid, network->wifi[j].ssid)) return false;
     }
     return true;
 }
@@ -244,11 +257,19 @@ bool curio_config_parse(const char *yaml, size_t size, curio_config_t *config, c
     if (!curio_string(device, "ntp_server", next->device.ntp_server, sizeof(next->device.ntp_server), "pool.ntp.org") ||
         !ntp_server_valid(next->device.ntp_server)) goto done;
     reason = "invalid network fields";
-    if ((network && !fields(network, "ssid|password|hostname")) ||
-        !curio_string(network, "ssid", next->network.ssid, sizeof(next->network.ssid), "") ||
-        !curio_string(network, "password", next->network.password, sizeof(next->network.password), "") ||
-        !curio_string(network, "hostname", next->network.hostname, sizeof(next->network.hostname), "curio") ||
-        !network_config_valid(&next->network)) goto done;
+    if ((network && !fields(network, "wifi|hostname")) ||
+        !curio_string(network, "hostname", next->network.hostname, sizeof(next->network.hostname), "curio")) goto done;
+    const cJSON *wifi = field(network, "wifi");
+    if (wifi && (!cJSON_IsArray(wifi) || cJSON_GetArraySize(wifi) > CURIO_WIFI_MAX_NETWORKS)) goto done;
+    next->network.wifi_count = wifi ? (size_t)cJSON_GetArraySize(wifi) : 0;
+    for (size_t i = 0; i < next->network.wifi_count; i++) {
+        const cJSON *entry = cJSON_GetArrayItem(wifi, (int)i);
+        curio_wifi_config_t *out = &next->network.wifi[i];
+        if (!fields(entry, "ssid|password") ||
+            !curio_string(entry, "ssid", out->ssid, sizeof(out->ssid), NULL) ||
+            !curio_string(entry, "password", out->password, sizeof(out->password), "")) goto done;
+    }
+    if (!network_config_valid(&next->network)) goto done;
     reason = "invalid TLS fields";
     if (tls && (!fields(tls, "certificate|private_key") ||
         !curio_string(tls, "certificate", next->tls.certificate, sizeof(next->tls.certificate), NULL) ||
@@ -296,11 +317,21 @@ static cJSON *config_tree(const curio_config_t *c)
         !curio_put_number(alerts, "vibration_strength", c->alerts.vibration_strength) ||
         !curio_put_bool(alerts, "flash_enabled", c->alerts.flash_enabled)) goto fail;
     if (strcmp(c->device.ntp_server, "pool.ntp.org") && !curio_put_string(device, "ntp_server", c->device.ntp_server)) goto fail;
-    if (*c->network.ssid || *c->network.password || strcmp(c->network.hostname, "curio")) {
+    if (c->network.wifi_count || strcmp(c->network.hostname, "curio")) {
         cJSON *network = object(root, "network");
-        if (!network || !curio_put_string(network, "ssid", c->network.ssid) ||
-            (*c->network.password && !curio_put_string(network, "password", c->network.password)) ||
-            (strcmp(c->network.hostname, "curio") && !curio_put_string(network, "hostname", c->network.hostname))) goto fail;
+        if (!network || (strcmp(c->network.hostname, "curio") &&
+            !curio_put_string(network, "hostname", c->network.hostname))) goto fail;
+        if (c->network.wifi_count) {
+            cJSON *wifi = cJSON_AddArrayToObject(network, "wifi");
+            if (!wifi) goto fail;
+            for (size_t i = 0; i < c->network.wifi_count; i++) {
+                cJSON *entry = cJSON_CreateObject();
+                if (!entry || !cJSON_AddItemToArray(wifi, entry)) { cJSON_Delete(entry); goto fail; }
+                if (!curio_put_string(entry, "ssid", c->network.wifi[i].ssid) ||
+                    (*c->network.wifi[i].password &&
+                     !curio_put_string(entry, "password", c->network.wifi[i].password))) goto fail;
+            }
+        }
     }
     if (*c->tls.certificate) {
         cJSON *tls = object(root, "tls");

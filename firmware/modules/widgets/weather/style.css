@@ -1,0 +1,7 @@
+.weather-title, .weather-condition { position: absolute; left: 8px; right: 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; color: #94a6bc; }
+.weather-title { top: 6px; }
+.weather-temperature { position: absolute; left: 8px; right: 8px; line-height: 1.2; }
+.weather-search { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.weather-search > label { flex: 1; }
+.weather-results { width: 100%; display: grid; gap: 4px; }
+.weather-provider { font-size: 12px; }

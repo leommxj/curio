@@ -1,6 +1,7 @@
 #include "lvgl.h"
 typedef struct {
     int rotation;
+    unsigned task_stack_size;
 } bsp_display_config_t;
 #define BSP_DISPLAY_DEFAULT_CONFIG() ((bsp_display_config_t){0})
 static inline lv_display_t *bsp_display_start_with_config(bsp_display_config_t *c)

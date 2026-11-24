@@ -1,4 +1,5 @@
 #include "../../firmware/main/curio_settings.c"
+#include "../../firmware/modules/widgets/agents/config.h"
 #include <assert.h>
 #include <pthread.h>
 
@@ -8,6 +9,8 @@ static size_t stored_size[2];
 static unsigned commits;
 static unsigned tls_prepares;
 static bool fail_write;
+static int fail_blob_slot = -1;
+static bool reset_pending;
 static pthread_mutex_t app_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 esp_err_t curio_tls_prepare(curio_config_t *config)
@@ -21,7 +24,7 @@ esp_err_t curio_tls_prepare(curio_config_t *config)
     return ESP_OK;
 }
 
-void esp_fill_random(void *buffer, size_t size) { memset(buffer, 0x42, size); }
+void esp_fill_random(void *buffer, size_t size) { static uint8_t seed; memset(buffer, ++seed, size); }
 esp_err_t nvs_flash_init(void) { return ESP_OK; }
 esp_err_t nvs_open(const char *name, unsigned mode, nvs_handle_t *handle)
 {
@@ -50,11 +53,33 @@ esp_err_t nvs_set_blob(nvs_handle_t handle, const char *key, const void *value, 
     pthread_mutex_unlock(curio_app.mutex);
     if (fail_write) return ESP_ERR_INVALID_STATE;
     unsigned index = slot(key);
+    if ((int)index == fail_blob_slot) return ESP_ERR_INVALID_STATE;
     memcpy(stored[index], value, size);
     stored_size[index] = size;
     return ESP_OK;
 }
 esp_err_t nvs_commit(nvs_handle_t handle) { assert(handle == 1); commits++; return ESP_OK; }
+esp_err_t nvs_get_u8(nvs_handle_t handle, const char *key, uint8_t *value)
+{
+    assert(handle == 1 && !strcmp(key, "reset"));
+    if (!reset_pending) return ESP_ERR_NVS_NOT_FOUND;
+    *value = 1;
+    return ESP_OK;
+}
+esp_err_t nvs_set_u8(nvs_handle_t handle, const char *key, uint8_t value)
+{
+    assert(handle == 1 && !strcmp(key, "reset") && value == 1);
+    if (fail_write) return ESP_ERR_INVALID_STATE;
+    reset_pending = true;
+    return ESP_OK;
+}
+esp_err_t nvs_erase_key(nvs_handle_t handle, const char *key)
+{
+    assert(handle == 1 && !strcmp(key, "reset"));
+    if (fail_write) return ESP_ERR_INVALID_STATE;
+    reset_pending = false;
+    return ESP_OK;
+}
 
 static curio_config_t *read_config(uint32_t *revision)
 {
@@ -80,6 +105,7 @@ static void test_configuration(void)
     curio_app.mutex = &app_mutex;
     assert(curio_settings_set_auto_rotate(true) == ESP_ERR_INVALID_STATE);
     assert(curio_settings_init() == ESP_OK);
+    assert(curio_app.import_shared_wifi);
     assert(commits == 1);
     uint32_t revision;
     curio_config_t *config = read_config(&revision);
@@ -121,6 +147,7 @@ static void test_configuration(void)
     assert(curio_settings_set_token(true, "short") == ESP_ERR_INVALID_ARG);
     assert(curio_settings_set_token(true, "contains whitespace") == ESP_ERR_INVALID_ARG);
     assert(curio_settings_init() == ESP_OK);
+    assert(!curio_app.import_shared_wifi);
     assert(curio_app.device.brightness == 42 && curio_app.device.rotation == 90);
     assert(curio_app.alert_config.volume == 70 && !curio_app.layout.pages[0].widgets[0].type->paging(curio_app.layout.pages[0].widgets[0].options));
     assert(!strcmp(curio_app.access.admin_token, "new-admin-token-123456"));
@@ -132,9 +159,11 @@ static void test_network_tls(void)
 {
     uint32_t revision;
     curio_config_t *config = read_config(&revision);
-    assert(!*config->network.ssid && !*config->tls.certificate && !strcmp(config->network.hostname, "curio"));
-    strcpy(config->network.ssid, "Studio WiFi");
-    strcpy(config->network.password, "password123");
+    assert(!config->network.wifi_count && !*config->tls.certificate && !strcmp(config->network.hostname, "curio"));
+    config->network.wifi_count = 2;
+    strcpy(config->network.wifi[0].ssid, "Studio WiFi");
+    strcpy(config->network.wifi[0].password, "password123");
+    strcpy(config->network.wifi[1].ssid, "Studio Guest");
     strcpy(config->network.hostname, "curio-studio");
     strcpy(config->tls.certificate, "supplied-cert");
     strcpy(config->tls.private_key, "supplied-key");
@@ -144,7 +173,9 @@ static void test_network_tls(void)
     curio_config_free(config);
     free(config);
     config = read_config(&revision);
-    assert(!strcmp(config->network.ssid, "Studio WiFi") && !strcmp(config->tls.certificate, "supplied-cert"));
+    assert(config->network.wifi_count == 2 && !strcmp(config->network.wifi[0].ssid, "Studio WiFi") &&
+           !strcmp(config->network.wifi[1].ssid, "Studio Guest") &&
+           !strcmp(config->tls.certificate, "supplied-cert"));
     assert(!strcmp(curio_app.network.hostname, "curio-studio") && !strcmp(curio_app.tls.private_key, "supplied-key"));
     prepared = tls_prepares;
     assert(save_config(config, revision) == ESP_OK && tls_prepares == prepared);
@@ -152,11 +183,13 @@ static void test_network_tls(void)
     assert(curio_settings_set_token(true, "another-admin-token-123456") == ESP_OK && tls_prepares == prepared);
     assert(curio_settings_init() == ESP_OK && tls_prepares == prepared);
     assert(curio_app.configured);
-    assert(!strcmp(curio_app.network.ssid, "Studio WiFi") && !strcmp(curio_app.tls.certificate, "supplied-cert"));
+    assert(curio_app.network.wifi_count == 2 && !strcmp(curio_app.network.wifi[0].ssid, "Studio WiFi") &&
+           !strcmp(curio_app.network.wifi[1].ssid, "Studio Guest") &&
+           !strcmp(curio_app.tls.certificate, "supplied-cert"));
     curio_config_free(config);
     free(config);
     config = read_config(&revision);
-    assert(!strcmp(config->network.password, "password123") && !strcmp(config->tls.private_key, "supplied-key"));
+    assert(!strcmp(config->network.wifi[0].password, "password123") && !strcmp(config->tls.private_key, "supplied-key"));
     strcpy(config->network.hostname, "curio-renamed");
     memset(&config->tls, 0, sizeof(config->tls));
     assert(save_config(config, revision) == ESP_OK && tls_prepares == prepared + 1);
@@ -330,6 +363,101 @@ static void test_concurrent_saves(void)
     curio_config_free(config);
     free(config);
 }
+
+static void test_adopt_wifi(void)
+{
+    stored_size[0] = stored_size[1] = 0;
+    assert(curio_settings_init() == ESP_OK);
+    assert(curio_settings_set_brightness(41) == ESP_OK);
+    assert(curio_settings_set_volume(67) == ESP_OK);
+    assert(curio_settings_set_page_auto_page("agents", false) == ESP_OK);
+    assert(curio_settings_set_token(true, "adopted-admin-token-123456") == ESP_OK);
+    assert(curio_settings_set_token(false, "adopted-collector-token-123456") == ESP_OK);
+    curio_network_config_t network = {.hostname = "curio", .wifi_count = 1,
+        .wifi = {{.ssid = "Shared Home", .password = "shared-password"}}};
+    uint32_t revision;
+    char *before = curio_settings_yaml(&revision);
+    unsigned saved_commits = commits;
+    fail_write = true;
+    assert(curio_settings_adopt_wifi(&network) == ESP_ERR_INVALID_STATE);
+    fail_write = false;
+    char *after = curio_settings_yaml(NULL);
+    assert(after && before && !strcmp(before, after) && commits == saved_commits);
+    assert(!curio_app.network.wifi_count && !*curio_app.tls.certificate);
+    free(before);
+    free(after);
+
+    assert(curio_settings_adopt_wifi(&network) == ESP_OK);
+    assert(commits == saved_commits + 1);
+    curio_config_t *config = read_config(&revision);
+    assert(config->network.wifi_count == 1 && !strcmp(config->network.wifi[0].ssid, "Shared Home"));
+    assert(!strcmp(config->network.wifi[0].password, "shared-password"));
+    assert(!strcmp(config->tls.certificate, "generated-cert:curio"));
+    assert(!strcmp(config->access.admin_token, "adopted-admin-token-123456"));
+    assert(!strcmp(config->access.collector_token, "adopted-collector-token-123456"));
+    assert(config->device.brightness == 41 && config->alerts.volume == 67);
+    assert(!((curio_agents_config_t *)config->display.pages[0].widgets[0].options)->auto_page);
+    curio_config_free(config);
+    free(config);
+
+    strcpy(network.wifi[0].ssid, "Replacement");
+    before = curio_settings_yaml(&revision);
+    saved_commits = commits;
+    assert(curio_settings_adopt_wifi(&network) == ESP_ERR_INVALID_STATE);
+    after = curio_settings_yaml(NULL);
+    assert(before && after && !strcmp(before, after) && commits == saved_commits);
+    assert(!strcmp(curio_app.network.wifi[0].ssid, "Shared Home"));
+    free(before);
+    free(after);
+    assert(curio_settings_init() == ESP_OK && curio_app.configured);
+    assert(!strcmp(curio_app.network.wifi[0].ssid, "Shared Home"));
+    assert(!strcmp(curio_app.access.admin_token, "adopted-admin-token-123456"));
+}
+static void test_reset(void)
+{
+    assert(curio_settings_set_auto_rotate(true) == ESP_OK);
+    curio_app.orientation.rotation = 270;
+    char *before = curio_settings_yaml(NULL);
+    curio_access_config_t old_access = curio_app.access;
+    curio_network_config_t old_network = curio_app.network;
+    assert(curio_app.alerts && curio_app.alert_config.rule_count && old_network.wifi_count);
+    fail_write = true;
+    assert(curio_settings_reset() == ESP_ERR_INVALID_STATE && !reset_pending);
+    char *after = curio_settings_yaml(NULL);
+    assert(!strcmp(before, after));
+    free(after);
+    fail_write = false;
+    assert(curio_settings_reset() == ESP_OK && reset_pending);
+    after = curio_settings_yaml(NULL);
+    assert(!strcmp(before, after));
+    free(before);
+    free(after);
+    fail_blob_slot = 0;
+    assert(curio_settings_init() == ESP_ERR_INVALID_STATE && reset_pending);
+    fail_blob_slot = -1;
+    assert(curio_settings_init() == ESP_OK && !reset_pending);
+    assert(!curio_app.configured && !curio_app.import_shared_wifi);
+    assert(!curio_app.network.wifi_count && !strcmp(curio_app.network.hostname, "curio"));
+    assert(!curio_app.tls.certificate[0] && !curio_app.tls.private_key[0]);
+    assert(strcmp(old_access.admin_token, curio_app.access.admin_token));
+    assert(strcmp(old_access.collector_token, curio_app.access.collector_token));
+    assert(curio_app.device.brightness == 75 && !curio_app.device.auto_rotate && curio_app.device.rotation == 0);
+    assert(curio_app.alert_config.volume == 35 && !curio_app.alert_config.rule_count && !curio_app.alerts);
+    assert(curio_app.layout.page_count == 1 && curio_app.layout.pages[0].widget_count == 1);
+    assert(curio_app.layout.pages[0].widgets[0].type == &curio_widget_agents);
+    for (unsigned i = 0; i < 2; i++) {
+        assert(stored_size[i] && !strstr((char *)stored[i] + 4, old_access.admin_token));
+        assert(!strstr((char *)stored[i] + 4, old_network.wifi[0].ssid));
+    }
+    before = curio_settings_yaml(NULL);
+    stored[0][4] = '!';
+    assert(curio_settings_init() == ESP_OK && !curio_app.import_shared_wifi);
+    after = curio_settings_yaml(NULL);
+    assert(!strcmp(before, after));
+    free(before);
+    free(after);
+}
+
 int main(void)
 {
     test_configuration();
@@ -337,9 +465,11 @@ int main(void)
     test_page_paging();
     test_rules_preserved();
     test_concurrent_saves();
+    test_reset();
+    test_adopt_wifi();
     curio_alerts_destroy(curio_app.alerts);
     curio_alert_config_free(&curio_app.alert_config);
     curio_layout_free(&curio_app.layout);
     cJSON_free(document);
-    puts("YAML settings: persistence, failures, tokens, local edits, runtime preservation and concurrent saves passed");
+    puts("YAML settings: persistence, failures, Wi-Fi adoption, reset, tokens, local edits and concurrent saves passed");
 }

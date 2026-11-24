@@ -20,12 +20,12 @@ class ConfigureTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.output = Path(self.tmp.name) / 'local'
 
-    def configure(self):
+    def configure(self, password='test-password'):
         return subprocess.run([
             sys.executable, str(ROOT / 'scripts/firmware/configure.py'), '--ssid', 'Lab "WiFi"',
             '--password-env', 'CURIO_TEST_PASSWORD', '--hostname', 'test-curio', '--ip', '192.0.2.12',
             '--output', str(self.output),
-        ], env=dict(os.environ, CURIO_TEST_PASSWORD='test-password'), capture_output=True, text=True)
+        ], env=dict(os.environ, CURIO_TEST_PASSWORD=password), capture_output=True, text=True)
 
     def test_generates_private_provisioning_yaml_and_matching_certificate(self):
         result = self.configure()
@@ -36,9 +36,10 @@ class ConfigureTest(unittest.TestCase):
             'curio.yaml', 'server-cert.pem', 'server-key.pem', 'token.txt', 'admin-token.txt',
         })
         self.assertTrue(all(path.stat().st_mode & 0o777 == 0o600 for path in self.output.iterdir()))
-        self.assertIn('  ssid: "Lab \\"WiFi\\""\n', source)
-        self.assertIn('  password: "test-password"\n', source)
+        self.assertIn('    - ssid: "Lab \\"WiFi\\""\n', source)
+        self.assertIn('      password: "test-password"\n', source)
         self.assertIn('  hostname: "test-curio"\n', source)
+        self.assertIn('  wifi:\n', source)
         self.assertIn('  admin_token: "' + (self.output / 'admin-token.txt').read_text().strip() + '"', source)
         self.assertIn('  collector_token: "' + (self.output / 'token.txt').read_text().strip() + '"', source)
         self.assertIn('          type: agents\n', source)
@@ -48,6 +49,7 @@ class ConfigureTest(unittest.TestCase):
             pass
         else:
             config = yaml.safe_load(source)
+            self.assertEqual(config['network']['wifi'], [{'ssid': 'Lab "WiFi"', 'password': 'test-password'}])
             self.assertEqual(config['tls']['certificate'], (self.output / 'server-cert.pem').read_text())
             self.assertEqual(config['tls']['private_key'], (self.output / 'server-key.pem').read_text())
         cert = subprocess.run(['openssl', 'x509', '-in', str(self.output / 'server-cert.pem'),
@@ -72,6 +74,17 @@ class ConfigureTest(unittest.TestCase):
         second = self.configure()
         self.assertNotEqual(second.returncode, 0)
         self.assertEqual((self.output / 'curio.yaml').read_bytes(), original)
+
+    def test_hex_psk(self):
+        result = self.configure('a' * 64)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('      password: "' + 'a' * 64 + '"\n',
+                      (self.output / 'curio.yaml').read_text(encoding='utf-8'))
+
+    def test_non_hex_64_byte_password_is_rejected(self):
+        result = self.configure('z' * 64)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.output.exists())
 
 
 class ProvisionTest(unittest.TestCase):

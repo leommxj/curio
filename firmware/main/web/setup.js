@@ -5,16 +5,64 @@ let config;
 let etag;
 let savedYaml;
 let preserveDraft = false;
+let wifiDraft = [];
+let sourceWifi = [];
+let selectedWifi = 0;
+const bytes = value => new TextEncoder().encode(value).length;
 
 function setBusy(busy) {
-  for (const field of form.querySelectorAll("input, button")) field.disabled = busy;
+  for (const field of form.querySelectorAll("input, select, button")) field.disabled = busy;
+  document.querySelector("#add-setup-wifi").disabled = busy || wifiDraft.length >= 4;
   document.querySelector("#reload-setup").disabled = busy;
+  document.querySelector("#reset-device").disabled = busy;
+}
+
+function copyWifi(list) {
+  return list.map(wifi => ({ ...wifi }));
+}
+
+function renderWifi() {
+  if (!wifiDraft.length) wifiDraft.push({ ssid: "", password: "" });
+  const escape = value => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+  document.querySelector("#wifi-select").innerHTML = wifiDraft.map((wifi, i) =>
+    `<option value="${i}">${i + 1}. ${escape(wifi.ssid) || "新网络"}</option>`).join("");
+  document.querySelector("#wifi-select").value = String(selectedWifi);
+  document.querySelector("#add-setup-wifi").disabled = wifiDraft.length >= 4;
+  document.querySelector("#ssid").value = wifiDraft[selectedWifi]?.ssid ?? "";
+  document.querySelector("#password").value = wifiDraft[selectedWifi]?.password ?? "";
 }
 
 function fillFields(value) {
-  document.querySelector("#ssid").value = value.network?.ssid || "";
-  document.querySelector("#password").value = value.network?.password || "";
+  sourceWifi = copyWifi(value.network?.wifi ?? []);
+  wifiDraft = copyWifi(sourceWifi);
+  selectedWifi = 0;
+  renderWifi();
   document.querySelector("#hostname").value = value.network?.hostname || "curio";
+}
+
+function validateWifi(list) {
+  if (list.length > 4) throw Error("最多添加 4 个 Wi-Fi 网络");
+  const names = new Set();
+  for (const [i, wifi] of list.entries()) {
+    if (bytes(wifi.ssid) < 1 || bytes(wifi.ssid) > 32)
+      throw Error(`网络 ${i + 1} 名称须为 1–32 字节`);
+    if (names.has(wifi.ssid)) throw Error(`Wi-Fi 名称重复: ${wifi.ssid}`);
+    names.add(wifi.ssid);
+    if (wifi.password && !((bytes(wifi.password) >= 8 && bytes(wifi.password) <= 63) || /^[0-9a-fA-F]{64}$/.test(wifi.password)))
+      throw Error(`网络 ${i + 1} 密码须为 8–63 字节或 64 位十六进制 PSK`);
+  }
+}
+
+function mergedDraft(remote) {
+  const result = copyWifi(remote);
+  for (const [i, wifi] of wifiDraft.entries()) {
+    const original = sourceWifi[i];
+    if (original && JSON.stringify(wifi) === JSON.stringify(original)) continue;
+    const at = original ? result.findIndex(item => item.ssid === original.ssid) : -1;
+    if (at >= 0) result[at] = { ...wifi };
+    else result.push({ ...wifi });
+  }
+  return result;
 }
 
 function showError(error) {
@@ -67,7 +115,7 @@ function showForm() {
 }
 
 async function load(keepFields = false) {
-  const fields = keepFields ? ["#ssid", "#password", "#hostname"].map(id => document.querySelector(id).value) : null;
+  const hostnameDraft = keepFields ? document.querySelector("#hostname").value : null;
   setBusy(true);
   status.textContent = "";
   status.classList.remove("danger");
@@ -81,10 +129,15 @@ async function load(keepFields = false) {
     if (!revision) throw Error("响应缺少 ETag");
     config = next;
     etag = revision;
+    const selectedName = wifiDraft[selectedWifi]?.ssid;
+    const merged = keepFields ? mergedDraft(next.network?.wifi ?? []) : null;
     fillFields(next);
-    if (fields) ["#ssid", "#password", "#hostname"].forEach((id, index) => {
-      document.querySelector(id).value = fields[index];
-    });
+    if (merged) {
+      wifiDraft = merged;
+      selectedWifi = Math.max(0, wifiDraft.findIndex(wifi => wifi.ssid === selectedName));
+      renderWifi();
+      document.querySelector("#hostname").value = hostnameDraft;
+    }
     showForm();
     preserveDraft = false;
   } catch (error) {
@@ -93,6 +146,25 @@ async function load(keepFields = false) {
   } finally {
     setBusy(false);
   }
+}
+
+document.querySelector("#wifi-select").addEventListener("change", event => {
+  selectedWifi = Number(event.target.value);
+  renderWifi();
+});
+document.querySelector("#add-setup-wifi").addEventListener("click", () => {
+  if (wifiDraft.length >= 4) return;
+  wifiDraft.push({ ssid: "", password: "" });
+  selectedWifi = wifiDraft.length - 1;
+  renderWifi();
+  document.querySelector("#ssid").focus();
+});
+for (const field of ["ssid", "password"]) {
+  document.querySelector(`#${field}`).addEventListener("input", event => {
+    wifiDraft[selectedWifi][field] = event.target.value;
+    if (field === "ssid") document.querySelector("#wifi-select").options[selectedWifi].textContent =
+      `${selectedWifi + 1}. ${event.target.value || "新网络"}`;
+  });
 }
 
 form.addEventListener("submit", async event => {
@@ -104,11 +176,11 @@ form.addEventListener("submit", async event => {
   try {
     const next = JSON.parse(JSON.stringify(config));
     const hostname = document.querySelector("#hostname").value.trim().toLowerCase();
+    validateWifi(wifiDraft);
     if ((next.network?.hostname || "curio") !== hostname) delete next.tls;
     next.network = {
       ...next.network,
-      ssid: document.querySelector("#ssid").value,
-      password: document.querySelector("#password").value,
+      wifi: copyWifi(wifiDraft),
       hostname,
     };
     const response = await fetch("/api/v2/setup", {
@@ -145,20 +217,27 @@ document.querySelector("#download-cert").addEventListener("click", () => {
 document.querySelector("#download-config").addEventListener("click", () => {
   download("curio.yaml", savedYaml);
 });
-document.querySelector("#restart").addEventListener("click", async () => {
-  const button = document.querySelector("#restart");
+async function restart(event) {
+  const button = event.currentTarget, reset = button.id === "reset-device";
+  if (reset && !confirm("清除 Curio 的全部配置并重启？Wi-Fi、Token、证书、布局和提醒都会重置。")) return;
+  setBusy(true);
   button.disabled = true;
   status.textContent = "";
   status.classList.remove("danger");
   try {
-    const response = await fetch("/api/v2/setup/restart", { method: "POST" });
+    const response = await fetch(`/api/v2/setup/${reset ? "reset" : "restart"}`, { method: "POST" });
     if (!response.ok) throw await responseError(response);
-    status.textContent = "设备正在重启";
+    if (reset) { form.hidden = true; savedPanel.hidden = true; }
+    else setBusy(false);
+    status.textContent = reset ? "正在重置，重启后请按屏幕密码重新连接热点。" : "设备正在重启";
   } catch (error) {
     showError(error);
+    setBusy(false);
     button.disabled = false;
   }
-});
+}
+document.querySelector("#restart").addEventListener("click", restart);
+document.querySelector("#reset-device").addEventListener("click", restart);
 document.querySelector("#edit-setup").addEventListener("click", () => {
   status.textContent = "";
   status.classList.remove("danger");

@@ -53,7 +53,7 @@ static esp_err_t provision(const esp_iris_rpc_request_t *request, uint8_t *respo
     esp_err_t result = ESP_ERR_NO_MEM;
     if (config) {
         memset(config, 0, sizeof(*config));
-        result = curio_config_parse(upload, uploaded, config, error, sizeof(error)) && config->network.ssid[0]
+        result = curio_config_parse(upload, uploaded, config, error, sizeof(error)) && config->network.wifi_count
             ? ESP_OK : ESP_ERR_INVALID_ARG;
         curio_config_free(config);
         free(config);

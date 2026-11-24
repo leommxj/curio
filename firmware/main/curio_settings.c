@@ -150,13 +150,17 @@ esp_err_t curio_settings_init(void)
     esp_err_t result = nvs_flash_init();
     if (result == ESP_OK) result = nvs_open("curio", NVS_READWRITE, &settings);
     if (result != ESP_OK) return result;
+    uint8_t reset = 0;
+    result = nvs_get_u8(settings, "reset", &reset);
+    if (result == ESP_ERR_NVS_NOT_FOUND) result = ESP_OK;
+    if (result != ESP_OK) return result;
     curio_config_t *config = curio_alloc(sizeof(*config)), *candidate = curio_alloc(sizeof(*candidate));
     if (!config || !candidate) { free(config); free(candidate); return ESP_ERR_NO_MEM; }
     if (!snapshot(config)) { free(config); free(candidate); return ESP_ERR_NO_MEM; }
     memset(candidate, 0, sizeof(*candidate));
     bool loaded = false;
     document_revision = 0;
-    for (unsigned slot = 0; slot < 2; slot++) {
+    for (unsigned slot = 0; !reset && slot < 2; slot++) {
         char key[16], error[128];
         snprintf(key, sizeof(key), "config%u", slot);
         size_t size = 0;
@@ -185,6 +189,12 @@ esp_err_t curio_settings_init(void)
         document_revision = 1;
         result = persist(yaml, document_revision);
     }
+    if (result == ESP_OK && reset) {
+        document_revision = 2;
+        result = persist(yaml, document_revision);
+        if (result == ESP_OK) result = nvs_erase_key(settings, "reset");
+        if (result == ESP_OK) result = nvs_commit(settings);
+    }
     if (result == ESP_OK) {
         config->device.revision = document_revision;
         config->display.revision = document_revision;
@@ -204,7 +214,8 @@ esp_err_t curio_settings_init(void)
             curio_app.access = config->access;
             curio_app.network = config->network;
             curio_app.tls = config->tls;
-            curio_app.configured = config->network.ssid[0] && config->tls.certificate[0];
+            curio_app.configured = config->network.wifi_count && config->tls.certificate[0];
+            curio_app.import_shared_wifi = !loaded && !reset;
             cJSON_free(document);
             document = yaml;
             yaml = NULL;
@@ -214,6 +225,16 @@ esp_err_t curio_settings_init(void)
     cJSON_free(yaml);
     curio_config_free(config);
     free(config);
+    return result;
+}
+
+esp_err_t curio_settings_reset(void)
+{
+    if (!ready) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(write_mutex, portMAX_DELAY);
+    esp_err_t result = nvs_set_u8(settings, "reset", 1);
+    if (result == ESP_OK) result = nvs_commit(settings);
+    xSemaphoreGive(write_mutex);
     return result;
 }
 
@@ -240,11 +261,29 @@ esp_err_t curio_settings_import(const char *yaml, size_t size, uint32_t revision
     esp_err_t result = revision == document_revision ? ESP_OK : ESP_ERR_INVALID_VERSION;
     if (result == ESP_OK && (strcmp(config->network.hostname, curio_app.network.hostname) ||
         memcmp(&config->tls, &curio_app.tls, sizeof(config->tls)) ||
-        (config->network.ssid[0] && !config->tls.certificate[0]))) {
+        (config->network.wifi_count && !config->tls.certificate[0]))) {
         result = curio_tls_prepare(config);
         if (result != ESP_OK && error && error_size) snprintf(error, error_size, "invalid TLS certificate, key or hostname");
     }
     if (result == ESP_OK) result = commit(config);
+    xSemaphoreGive(write_mutex);
+    curio_config_free(config);
+    free(config);
+    return result;
+}
+
+esp_err_t curio_settings_adopt_wifi(const curio_network_config_t *network)
+{
+    curio_config_t *config = curio_alloc(sizeof(*config));
+    if (!config) return ESP_ERR_NO_MEM;
+    xSemaphoreTake(write_mutex, portMAX_DELAY);
+    esp_err_t result = snapshot(config) ? ESP_OK : ESP_ERR_NO_MEM;
+    if (result == ESP_OK && config->network.wifi_count) result = ESP_ERR_INVALID_STATE;
+    if (result == ESP_OK) {
+        config->network = *network;
+        result = curio_tls_prepare(config);
+        if (result == ESP_OK) result = commit(config);
+    }
     xSemaphoreGive(write_mutex);
     curio_config_free(config);
     free(config);

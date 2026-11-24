@@ -13,7 +13,7 @@ Use HTTPS on port 443 and `Authorization: Bearer <token>`. JSON and YAML use UTF
 | `access.collector_token` | `POST /api/v2/snapshot`, for any host ID |
 | `access.admin_token` | State, catalog, configuration, token management, diagnostics |
 
-Static web assets and `/healthz` are public on the normal HTTPS server. An unconfigured device opens a temporary WPA2 Setup AP with a random password shown on its screen. The AP serves `http://192.168.4.1/setup.html` and the setup API without a separate token. A physical Wi-Fi button in Settings can open or close the AP later; connection failures do not open it. Open the setup address manually. Device credentials live in saved YAML in NVS, not in the firmware image. Full YAML exports contain the Wi-Fi password, both tokens and TLS private key in plaintext; keep them out of Git.
+Static web assets and `/healthz` are public on the normal HTTPS server. The temporary WPA2 Setup AP serves `http://192.168.4.1/setup.html` and the setup API without a separate token; access uses the random Wi-Fi password shown on the device. See [first setup](firmware.md#first-setup) for shared Wi-Fi import and [device controls](firmware.md#connection-and-troubleshooting) for opening the AP. Device credentials live in saved YAML in NVS, not in the firmware image. Full YAML exports contain Wi-Fi passwords, both tokens and the TLS private key in plaintext; keep them out of Git.
 
 ## Snapshots
 
@@ -102,9 +102,11 @@ access:
   admin_token: example-admin-token-0001
   collector_token: example-collector-token-0001
 network:
-  ssid: Office Wi-Fi
-  password: example-password
   hostname: curio
+  wifi:
+    - ssid: Office Wi-Fi
+      password: example-password
+    - ssid: Guest Wi-Fi
 screen:
   pages:
     - id: agents
@@ -114,9 +116,9 @@ screen:
           size: [4, 6]
 ```
 
-`access` and `screen.pages` are required. `version` defaults to 1 and only accepts 1. `device`, `alerts`, `network` and `tls` are optional. Tokens contain 16–128 printable ASCII bytes without whitespace. Importing a document updates its credentials, Wi-Fi and TLS settings. `network.ssid` contains 1–32 UTF-8 bytes when Wi-Fi is configured; `network.password` is empty or 8–63 UTF-8 bytes. `network.hostname` defaults to `curio` and is one DNS label of at most 32 ASCII letters, digits and interior hyphens. `tls.certificate` and `tls.private_key` are PEM strings supplied together. When Wi-Fi is configured and TLS is absent, the device generates a certificate and key. Changing the hostname through the Device tab removes the old TLS pair so the device generates one for the new name. Network and certificate changes take effect after restart.
+`access` and `screen.pages` are required. `version` defaults to 1 and only accepts 1. `device`, `alerts`, `network` and `tls` are optional. Tokens contain 16–128 printable ASCII bytes without whitespace. Importing a document updates its credentials, Wi-Fi and TLS settings. `network.wifi` is an ordered list of up to four networks. Each entry needs a unique SSID of 1–32 UTF-8 bytes; its password may be empty, 8–63 UTF-8 bytes, or a 64-digit hexadecimal WPA PSK. Omit `wifi` or use `wifi: []` for an unconfigured device. The device tries networks in list order. `network.hostname` defaults to `curio` and is one DNS label of at most 32 ASCII letters, digits and interior hyphens. `tls.certificate` and `tls.private_key` are PEM strings supplied together. When Wi-Fi is configured and TLS is absent, the device generates a certificate and key. Changing the hostname through the Device tab removes the old TLS pair so the device generates one for the new name. Network and certificate changes take effect after restart.
 
-Import replaces the complete configuration; omitted optional fields return to their defaults. Export the current YAML before editing a configured device. The example above omits TLS so the device generates it; later exports include both PEM fields.
+Import replaces the complete configuration; omitted optional fields return to their defaults. Export the current YAML before editing a configured device. The example above omits TLS so the device generates it; later exports include both PEM fields. On first initialization, Curio tries Vibe Mode's shared Wi-Fi settings as described in [first setup](firmware.md#first-setup).
 
 The same complete YAML is used by the setup API while the temporary AP is open:
 
@@ -125,8 +127,9 @@ The same complete YAML is used by the setup API while the temporary AP is open:
 | `GET /api/v2/setup` | Return normalized YAML and ETag without a token |
 | `PUT /api/v2/setup` | Import full YAML with `Content-Type: application/yaml` and the current `If-Match`; return normalized YAML and ETag |
 | `POST /api/v2/setup/restart` | Return 200 and schedule a device restart |
+| `POST /api/v2/setup/reset` | Mark configuration for reset and restart into the Setup AP; replace both YAML slots with defaults and new tokens at boot |
 
-Setup writes do not restart automatically; the setup page offers restart after a successful save, leaving time to download credentials. The normal HTTPS `GET` and `PUT /api/v2/config` and `POST /api/v2/restart` require the admin token. The setup API is available only on the temporary AP; the physical AP password is its access control. `make provision` writes the same full YAML over Iris only while the device is unconfigured or physical Setup is open.
+Setup imports do not restart automatically; the setup page offers restart after a successful save, leaving time to download credentials. Reset restarts immediately and skips shared Wi-Fi import. The normal HTTPS `GET` and `PUT /api/v2/config` and `POST /api/v2/restart` require the admin token. The setup API is available only on the temporary AP; the physical AP password is its access control. `make provision` writes the same full YAML over Iris only while the device is unconfigured or physical Setup is open.
 
 `PUT /api/v2/tokens/admin` accepts a JSON body up to 512 bytes: `{"token":"new-admin-token-0001"}`. `POST /api/v2/tokens/collector` needs no body and generates a 64-character hexadecimal token. Both authenticate with the current admin token and return updated YAML and ETag. Replaced tokens stop working immediately.
 
@@ -134,11 +137,12 @@ Setup writes do not restart automatically; the setup page offers restart after a
 
 `screen.pages` holds 1–4 pages, each with required `id` and `widgets` and at most 8 widgets. Empty pages use `widgets: []`. `default_page` defaults to the first page and must reference an existing page. Page IDs are globally unique; widget IDs are unique within their page. Both contain 1–32 bytes from `[A-Za-z0-9._-]`. Titles accept up to 48 UTF-8 bytes; page titles default to the page ID.
 
-The content grid has 4 columns and 6 rows. Required `at: [column, row]` uses zero-based coordinates; required `size: [columns, rows]` gives occupied cells. Each pair contains exactly two integers. Widgets must fit the grid without overlap. Widget IDs default to type plus position, such as `agents-1`; titles default to `Agents`, `Metric`, `Status`, or `Machine`. Clock titles are automatic unless specified.
+The content grid has 4 columns and 6 rows. Required `at: [column, row]` uses zero-based coordinates; required `size: [columns, rows]` gives occupied cells. Each pair contains exactly two integers. Widgets must fit the grid without overlap. Widget IDs default to type plus position, such as `agents-1`; titles default to `Agents`, `Metric`, `Status`, or `Machine`. Clock and weather titles are automatic unless specified.
 
 | Type | Minimum size | Binding |
 | --- | --- | --- |
 | `clock` | 1 × 1 | Device time; optional `utc_offset` and `seconds`; no host or source |
+| `weather` | 1 × 1 | Required `city`, `latitude` and `longitude`; device queries Open-Meteo |
 | `metric` | 1 × 1 | Required `host`, `source`, `key`; optional `unit` checks the reported unit |
 | `status` | 1 × 1 | Required `host`, `source`; shows status text and level, with detail when space permits |
 | `machine` | 2 × 2 | Required `host`; shows `system.cpu/usage_pct` and `system.memory/usage_pct` |
@@ -156,11 +160,24 @@ Clocks show 24-hour time and add an ISO date when at least two rows tall. `utc_o
   seconds: true
 ```
 
-The board synchronizes time through NTP while a clock exists on any page. `device.ntp_server` defaults to `pool.ntp.org`; specify a hostname or IP address, up to 127 ASCII characters. NTP uses UDP port 123. Before time is available, clocks show `--:--`. After synchronization, time continues during network outages. Power loss requires synchronization again. Removing every clock stops NTP; clocks have no Collector dependency.
+The board synchronizes time through NTP while a clock or weather widget exists on any page. `device.ntp_server` defaults to `pool.ntp.org`; specify a hostname or IP address, up to 127 ASCII characters. NTP uses UDP port 123. Before time is available, clocks show `--:--`. After synchronization, time continues during network outages. Power loss requires synchronization again. Removing all widgets that require time stops NTP.
+
+Weather widgets display Celsius temperature, adding weather conditions when wider or taller than one cell and relative humidity when at least two rows tall. `city` contains 1–64 UTF-8 bytes and supplies the default title. Latitude ranges from −90 to 90; longitude ranges from −180 to 180. The web editor searches cities and stores the selected coordinates. Its preview shows placeholders; the board queries [Open-Meteo](https://open-meteo.com/) directly every fifteen minutes. These are model-based current conditions. Matching coordinates share a cache across pages. A failed update keeps the last values and marks them stale; data also becomes stale after thirty minutes. Failures retry after one minute.
+
+```yaml
+- type: weather
+  city: Shanghai
+  latitude: 31.22222
+  longitude: 121.45806
+  at: [0, 0]
+  size: [2, 2]
+```
+
+Weather needs Internet access and synchronized time for HTTPS certificate validation. It uses Open-Meteo's public API without a key; see the provider's [terms](https://open-meteo.com/en/terms) for usage and attribution.
 
 Agents default to all hosts (`hosts: ["*"]`), `source: herdr`, `filter: all`, and `auto_page: true`. `hosts: []` selects no hosts; explicit lists hold at most 4 unique host IDs. `filter` accepts `all`, `attention` (blocked), or `working`. Optional `project` and `agent` are exact matches, limited to 48 and 96 UTF-8 bytes respectively. Lists page every 10 seconds when needed; manual paging and filtering restart the timer. Each widget maintains its own page and filters.
 
-Bindings may reference data that has not arrived yet and survive data removal. Only widgets on the current page have runtime instances. Data refreshes do not change layout. The initial layout contains one full-page agents widget for all hosts.
+Bindings may reference data that has not arrived yet and survive data removal. Only widgets on the current page create display objects; configured weather locations retain their caches across page changes. Data refreshes do not change layout. The initial layout contains one full-page agents widget for all hosts.
 
 Status widgets distinguish business status from collection health. Collection errors, stale data and offline hosts replace the business text. Status payloads are allocated only for sources of that kind.
 

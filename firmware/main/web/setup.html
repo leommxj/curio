@@ -14,8 +14,9 @@
       <section class="panel">
         <form id="setup-form" hidden>
           <h1>连接网络</h1>
+          <div class="wifi-heading"><label>Wi-Fi 网络<select id="wifi-select"></select></label><button id="add-setup-wifi" type="button">添加网络</button></div>
           <label>Wi-Fi 名称<input id="ssid" required autocomplete="off" /></label>
-          <label>Wi-Fi 密码<input id="password" type="password" autocomplete="off" placeholder="留空表示开放网络" /></label>
+          <label>Wi-Fi 密码<input id="password" type="password" maxlength="64" autocomplete="off" placeholder="留空表示开放网络" /></label>
           <label>设备名称<input id="hostname" required maxlength="32" pattern="[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?" value="curio" autocomplete="off" /></label>
           <button id="save-setup" type="submit">保存设置</button>
         </form>
@@ -35,6 +36,7 @@
         </section>
         <p id="setup-status" role="status"></p>
         <button id="reload-setup" type="button" hidden>重新加载</button>
+        <button id="reset-device" type="button" class="danger">重置 Curio</button>
       </section>
     </main>
   </body>

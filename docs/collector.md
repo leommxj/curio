@@ -26,7 +26,7 @@ System metrics use gopsutil's implementations for Linux, Windows and macOS. Modu
 
 Windows also has a [setup window](#windows-setup).
 
-Adding a built-in module requires changing and rebuilding Collector. A separate reporter can also send compatible snapshots directly to the Hub. The protocol accepts metrics, status text and agent lists. No built-in module produces generic status text yet. See [screen bindings](protocol.md#screen-configuration) and [alert rules](protocol.md#alerts) for their current constraints.
+Adding a built-in module requires changing and rebuilding Collector. A separate reporter can send metrics, status text and agent lists directly to the Hub using the [snapshot protocol](protocol.md#snapshots).
 
 ## Configuration and commands
 

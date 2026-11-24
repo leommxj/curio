@@ -6,7 +6,7 @@
 
 A general-purpose status display for ESP-Mosaico. Collectors choose what to report; the board hosts the Hub, web configuration and LVGL display. Collection and display are configured independently.
 
-Collectors send machine and application state. The board reads its own clock and sensors; these do not require a Collector.
+Collectors send machine and application state. The board reads its own clock and sensors and queries weather directly; these do not require a Collector.
 
 ```text
 Local YAML → Collector → HTTPS → Mosaico Hub → Display
@@ -15,8 +15,9 @@ Local YAML → Collector → HTTPS → Mosaico Hub → Display
 ```
 
 - Receive selected data sources from up to four machines.
-- Arrange clocks, metrics, status cards, single-machine CPU/memory cards and Agent lists on a 4 × 6 grid. Widgets can be moved and resized; only the current page is instantiated.
+- Arrange clocks, weather, metrics, status cards, single-machine CPU/memory cards and Agent lists on a 4 × 6 grid. Widgets can be moved and resized; only the current page is instantiated.
 - Clocks use network time directly on the board, with a UTC offset per widget and optional seconds.
+- Select a city for Open-Meteo weather: Celsius temperature, conditions and humidity, refreshed every fifteen minutes.
 - Swipe Agent lists or enable ten-second automatic paging.
 - Configure completion, high-metric and offline alerts, with independent sound, vibration and camera-module flash.
 - Adjust rotation, brightness and feedback on the device. Battery status comes from the BQ27220.
@@ -42,7 +43,9 @@ OS compatibility is listed per module in the [Collector guide](docs/collector.md
 
 ### Start
 
-Build and install the device firmware using the [firmware guide](docs/firmware.md). For first setup, join the temporary `Curio-…` Wi-Fi network with the password shown on the board and open `http://192.168.4.1/setup.html`. Enter your Wi-Fi settings, save, download the certificate and full YAML, then select **Connect** to restart. Alternatively, run `make configure SSID="YourWiFi"` followed by `make provision` over USB or paired Wi-Fi while the device is unconfigured or its physical Setup AP is open. Then build the Collector with Go 1.22+ and Make from the repository root:
+Build and install the device firmware using the [firmware guide](docs/firmware.md). On first initialization, the device tries Vibe Mode's shared Wi-Fi settings; if it cannot connect, it opens the Setup AP. Hold the AI button for three seconds to open setup at any time and obtain the credentials.
+
+Join the temporary `Curio-…` Wi-Fi network with the password shown on the board and open `http://192.168.4.1/setup.html`. Enter your Wi-Fi settings, save, download the certificate and full YAML, then select **Connect** to restart. Alternatively, run `make configure SSID="YourWiFi"` followed by `make provision` over USB or paired Wi-Fi while the device is unconfigured or its physical Setup AP is open. Then build the Collector with Go 1.22+ and Make from the repository root:
 
 ```sh
 make collector
@@ -59,7 +62,7 @@ Edit the generated `collector.yaml`: set the endpoint, certificate, token file a
 
 The default file is `curio/collector.yaml` in the user's configuration directory. Use `--config PATH` to select another file; restart after edits. On Linux, install a user service with `make install-collector`, or use `make install-collector MODE=system` for a system service. See [service deployment](docs/collector.md#services).
 
-Open `https://curio.local` (or your chosen hostname) in a browser, trust the device certificate and sign in with the admin token from setup. Computer provisioning also saves it in `firmware/local/admin-token.txt`. The web interface edits screen layout, data bindings, alerts, network settings and YAML. Bindings may refer to data that has not arrived yet. The [example Hub configuration](curio.example.yaml) shows the format.
+Open `https://curio.local` (or your chosen hostname) in a browser, trust the device certificate and sign in with the admin token from setup. Computer provisioning also saves it in `firmware/local/admin-token.txt`. The web interface edits screen layout, data bindings, alerts and YAML; its Device tab manages up to four Wi-Fi networks in connection order. Bindings may refer to data that has not arrived yet. The [example Hub configuration](curio.example.yaml) shows the format.
 
 Admin and Collector tokens can be changed from the web interface. Full YAML exports contain Wi-Fi settings, both tokens, and the TLS certificate and private key. Network and certificate changes take effect after a restart. Alert rules are empty by default; notifications disappear after ten seconds unless configured otherwise. Reported data and notifications are kept in RAM.
 
@@ -71,7 +74,7 @@ Run `make help` for build, flash, service and test commands. `make test` runs th
 
 ### Limits and development
 
-The Hub accepts four hosts, eight sources per host, and a total of 32 metrics and 16 agents per host. It supports four screen pages with eight widgets each. The device font is ASCII; other characters display as `?`. The web interface retains Unicode.
+The Hub accepts four hosts, eight sources per host, and a total of 32 metrics and 16 agents per host. It supports four screen pages with eight widgets each. The display supports Latin text and 3,503 common Chinese characters; see [font coverage](firmware/components/curio_fonts/README.md). The web interface retains Unicode.
 
 | Path | Contents |
 | --- | --- |
@@ -95,11 +98,12 @@ See the [protocol](docs/protocol.md), [module interfaces](docs/modules.md), [dev
 
 Curio 是运行在 ESP-Mosaico 上的通用状态屏。Collector 自行选择上报内容；开发板运行 Hub、网页配置和 LVGL 界面。采集与展示独立配置。
 
-Collector 上报机器和应用状态。开发板自行读取时钟和传感器，无需 Collector。
+Collector 上报机器和应用状态。开发板自行读取时钟和传感器、查询天气，无需 Collector。
 
 - 接收最多四台机器各自选择上报的数据来源。
-- 使用 4 列 × 6 行网格排布时钟、数值、状态卡、单机 CPU/内存卡和 Agent 列表，支持移动、缩放；只创建当前页的组件。
+- 使用 4 列 × 6 行网格排布时钟、天气、数值、状态卡、单机 CPU/内存卡和 Agent 列表，支持移动、缩放；只创建当前页的组件。
 - 时钟由开发板直接网络校时，每个组件可设置 UTC 偏移和秒数显示。
+- 按城市配置 Open-Meteo 天气，显示摄氏温度、天气状态和湿度，每十五分钟更新。
 - Agent 列表支持滑动和可关闭的十秒自动翻页。
 - 支持 Agent 完成、指标过高和机器离线提醒，声音、振动和相机模块闪光可分别配置。
 - 设备上可调整方向、亮度和提醒输出，通过 BQ27220 显示电池状态。
@@ -125,7 +129,9 @@ Collector 上报机器和应用状态。开发板自行读取时钟和传感器�
 
 ### 开始使用
 
-按[固件文档](docs/firmware.md)构建并安装设备固件。首次配置时，用设备屏幕显示的随机密码连接 `Curio-…` 临时 Wi-Fi，打开 `http://192.168.4.1/setup.html`，填写 Wi-Fi 信息并保存，下载证书和完整 YAML 后点击「连接」重启。也可在设备尚未配置或已手动开启设置热点时，用 `make configure SSID="YourWiFi"` 和 `make provision` 通过 USB 或已配对 Wi-Fi 写入配置。随后准备 Go 1.22+ 和 Make，在仓库根目录构建 Collector：
+按[固件文档](docs/firmware.md)构建并安装设备固件。设备首次初始化时会先尝试 Vibe Mode 的共享 Wi-Fi，连接失败再开热点。随时长按 AI 键三秒可开启配网页面并获取凭证。
+
+用设备屏幕显示的随机密码连接 `Curio-…` 临时 Wi-Fi，打开 `http://192.168.4.1/setup.html`，填写 Wi-Fi 信息并保存，下载证书和完整 YAML 后点击「连接」重启。也可在设备尚未配置或已手动开启设置热点时，用 `make configure SSID="YourWiFi"` 和 `make provision` 通过 USB 或已配对 Wi-Fi 写入配置。随后准备 Go 1.22+ 和 Make，在仓库根目录构建 Collector：
 
 ```sh
 make collector
@@ -142,7 +148,7 @@ make collector
 
 默认配置位于用户配置目录下的 `curio/collector.yaml`，可用 `--config PATH` 指定其他路径，修改后重启。Linux 可执行 `make install-collector` 安装用户服务，或使用 `make install-collector MODE=system` 安装系统服务，参见[服务部署](docs/collector.md#services)。
 
-浏览器打开 `https://curio.local`（或设置的主机名），信任设备证书后使用设置时取得的管理 token 登录。电脑配置时也会写入 `firmware/local/admin-token.txt`。网页可配置布局、数据绑定、提醒、网络和完整 YAML，也能预先绑定尚未上报的数据。[Hub 配置示例](curio.example.yaml)展示了字段格式。
+浏览器打开 `https://curio.local`（或设置的主机名），信任设备证书后使用设置时取得的管理 token 登录。电脑配置时也会写入 `firmware/local/admin-token.txt`。网页可配置布局、数据绑定、提醒和完整 YAML，「设备」页支持按连接顺序管理最多四组 Wi-Fi 网络。数据绑定可预先配置，无需等待上报。[Hub 配置示例](curio.example.yaml)展示了字段格式。
 
 网页可修改管理 token、生成 Collector token；完整 YAML 导出包含 Wi-Fi、两项 token、证书和私钥。修改网络或证书后需重启生效。提醒默认没有规则，需要自行添加；通知默认十秒消失，也可调整。采集数据和通知仅保存在 RAM。
 
@@ -154,7 +160,7 @@ make collector
 
 ### 限制与开发
 
-Hub 最多接收四台主机，每机八个来源、合计 32 个指标和 16 个 Agent；最多四个展示页，每页八个组件。设备字体仅支持 ASCII，其他字符显示为 `?`，网页保留 Unicode。
+Hub 最多接收四台主机，每机八个来源、合计 32 个指标和 16 个 Agent；最多四个展示页，每页八个组件。设备支持西文和 3503 个常用汉字，见[字体范围](firmware/components/curio_fonts/README.md)；网页保留 Unicode。
 
 `Makefile` 统一命令入口。`collector/` 负责采集和上报；`firmware/components/` 存放可在主机测试的状态、YAML、布局和提醒模型；`firmware/modules/` 按类型存放 widget 和 alert 的实现、网页编辑器及测试；`firmware/main/` 接入 ESP-IDF、设备驱动、LVGL 和网页。`scripts/` 按 `firmware`、`collector`、`dev` 分组存放构建、部署和开发脚本，`tests/` 存放测试。详细说明见[协议](docs/protocol.md)、[模块接口](docs/modules.md)和[设备操作](docs/firmware.md#runtime-and-controls)。
 

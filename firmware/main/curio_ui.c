@@ -124,16 +124,16 @@ static void notification_show(const curio_alert_notification_t *notification, ui
         lv_obj_set_scroll_dir(content, LV_DIR_VER);
         lv_obj_remove_flag(content, LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SCROLL_CHAIN_VER);
         lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
-        notification_title = curio_view_label(content, 0, 0, 408, &lv_font_montserrat_32, CURIO_COLOR_MUTED);
-        notification_body = curio_view_label(content, 0, 0, 408, &lv_font_montserrat_48, CURIO_COLOR_FG);
-        notification_detail = curio_view_label(content, 0, 0, 408, &lv_font_montserrat_26, CURIO_COLOR_MUTED);
+        notification_title = curio_view_label(content, 0, 0, 408, &curio_font_32, CURIO_COLOR_MUTED);
+        notification_body = curio_view_label(content, 0, 0, 408, &curio_font_48, CURIO_COLOR_FG);
+        notification_detail = curio_view_label(content, 0, 0, 408, &curio_font_26, CURIO_COLOR_MUTED);
         lv_label_set_long_mode(notification_title, LV_LABEL_LONG_WRAP);
         lv_label_set_long_mode(notification_body, LV_LABEL_LONG_WRAP);
         lv_label_set_long_mode(notification_detail, LV_LABEL_LONG_WRAP);
         lv_obj_t *close = curio_view_button(panel, "Close", 0, 0, 408, notification_close, NULL);
         lv_obj_set_height(close, 56);
-        lv_obj_set_style_text_font(lv_obj_get_child(close, 0), &lv_font_montserrat_26, 0);
-        notification_countdown = curio_view_label(close, 0, 0, 88, &lv_font_montserrat_26, CURIO_COLOR_MUTED);
+        lv_obj_set_style_text_font(lv_obj_get_child(close, 0), &curio_font_26, 0);
+        notification_countdown = curio_view_label(close, 0, 0, 88, &curio_font_26, CURIO_COLOR_MUTED);
         lv_obj_align(notification_countdown, LV_ALIGN_RIGHT_MID, -14, 0);
         lv_obj_set_style_text_align(notification_countdown, LV_TEXT_ALIGN_RIGHT, 0);
     }
@@ -239,10 +239,10 @@ static void network_click(lv_event_t *event)
     lv_obj_set_style_bg_color(network_popup, lv_color_hex(0x192534), 0);
     lv_obj_remove_flag(network_popup, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(network_popup, network_click, LV_EVENT_CLICKED, NULL);
-    network_status = curio_view_label(network_popup, 16, 16, 400, &lv_font_montserrat_18, CURIO_COLOR_FG);
+    network_status = curio_view_label(network_popup, 16, 16, 400, &curio_font_18, CURIO_COLOR_FG);
     lv_label_set_long_mode(network_status, LV_LABEL_LONG_WRAP);
     lv_obj_set_height(network_status, 48);
-    network_ip = curio_view_label(network_popup, 16, 78, 400, &lv_font_montserrat_14, CURIO_COLOR_MUTED);
+    network_ip = curio_view_label(network_popup, 16, 78, 400, &curio_font_14, CURIO_COLOR_MUTED);
     network_until = curio_now_ms() + 5000;
     refresh(NULL);
 }
@@ -262,7 +262,7 @@ static lv_obj_t *header_button(lv_obj_t *parent, int x, int width, lv_event_cb_t
 static lv_obj_t *header_icon(lv_obj_t *parent, int x, const char *symbol, lv_event_cb_t callback)
 {
     lv_obj_t *obj = header_button(parent, x, 44, callback);
-    lv_obj_t *icon = curio_view_label(obj, 0, 0, 44, &lv_font_montserrat_18, CURIO_COLOR_MUTED);
+    lv_obj_t *icon = curio_view_label(obj, 0, 0, 44, &curio_font_18, CURIO_COLOR_MUTED);
     lv_obj_remove_local_style_prop(icon, LV_STYLE_TEXT_COLOR, 0);
     lv_label_set_text(icon, symbol);
     lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
@@ -286,7 +286,7 @@ static lv_obj_t *settings_sheet(lv_obj_t *parent, const char *title, const char 
     lv_obj_set_style_bg_color(sheet, lv_color_hex(0x101822), 0);
     lv_obj_remove_flag(sheet, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_add_flag(sheet, LV_OBJ_FLAG_CLICKABLE);
-    curio_view_text(curio_view_label(sheet, 24, 24, 300, &lv_font_montserrat_26, CURIO_COLOR_FG), title);
+    curio_view_text(curio_view_label(sheet, 24, 24, 300, &curio_font_26, CURIO_COLOR_FG), title);
     curio_view_button(sheet, action, 364, 16, 92, close, NULL);
     return sheet;
 }
@@ -301,13 +301,12 @@ static void setup_open(lv_event_t *event)
 {
     (void)event;
     if (setup_mask) return;
-    setup_shown = true;
     curio_network_setup(true);
     setup_mask = settings_sheet(lv_screen_active(), "Wi-Fi setup", "Close", setup_close);
-    setup_details = curio_view_label(setup_mask, 32, 110, 416, &lv_font_montserrat_26, CURIO_COLOR_FG);
+    setup_details = curio_view_label(setup_mask, 32, 110, 416, &curio_font_26, CURIO_COLOR_FG);
     lv_label_set_long_mode(setup_details, LV_LABEL_LONG_WRAP);
     curio_view_text(setup_details, "Starting...");
-    curio_view_text(curio_view_label(setup_mask, 32, 380, 416, &lv_font_montserrat_26, CURIO_COLOR_MUTED), "http://192.168.4.1");
+    curio_view_text(curio_view_label(setup_mask, 32, 380, 416, &curio_font_26, CURIO_COLOR_MUTED), "http://192.168.4.1");
 }
 static void alert_details_close(lv_event_t *event)
 {
@@ -325,11 +324,11 @@ static void alert_rule_card(const curio_alert_rule_t *rule, const curio_alert_co
     lv_obj_set_style_bg_color(card, lv_color_hex(0x192534), 0);
     lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
     const char *title = rule->type->title;
-    curio_view_text(curio_view_label(card, 0, 0, 320, &lv_font_montserrat_18, CURIO_COLOR_FG), title);
-    lv_obj_t *enabled = curio_view_label(card, 352, 0, 72, &lv_font_montserrat_14, rule->enabled ? 0x80C9B1 : CURIO_COLOR_MUTED);
+    curio_view_text(curio_view_label(card, 0, 0, 320, &curio_font_18, CURIO_COLOR_FG), title);
+    lv_obj_t *enabled = curio_view_label(card, 352, 0, 72, &curio_font_14, rule->enabled ? 0x80C9B1 : CURIO_COLOR_MUTED);
     lv_obj_set_style_text_align(enabled, LV_TEXT_ALIGN_RIGHT, 0);
     curio_view_text(enabled, rule->enabled ? "Enabled" : "Disabled");
-    lv_obj_t *id = curio_view_label(card, 0, 28, 424, &lv_font_montserrat_14, CURIO_COLOR_MUTED);
+    lv_obj_t *id = curio_view_label(card, 0, 28, 424, &curio_font_14, CURIO_COLOR_MUTED);
     lv_label_set_long_mode(id, LV_LABEL_LONG_WRAP);
     curio_view_text(id, rule->id);
     lv_obj_update_layout(card);
@@ -345,7 +344,7 @@ static void alert_rule_card(const curio_alert_rule_t *rule, const curio_alert_co
     snprintf(body, sizeof(body), "%s\nDisplay: %s\nSound: %s\nVibration: %s\nFlash: %s",
         condition, duration, sound, vibration,
         !rule->flash ? "Off" : config->flash_enabled ? "On" : "Off (global)");
-    lv_obj_t *details = curio_view_label(card, 0, 40 + lv_obj_get_height(id), 424, &lv_font_montserrat_14, CURIO_COLOR_FG);
+    lv_obj_t *details = curio_view_label(card, 0, 40 + lv_obj_get_height(id), 424, &curio_font_14, CURIO_COLOR_FG);
     lv_label_set_long_mode(details, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_line_space(details, 6, 0);
     lv_label_set_text(details, body);
@@ -369,7 +368,7 @@ static void alert_details_update(void)
     if (!copied) { free(config); return; }
     int32_t scroll = lv_obj_get_scroll_y(alert_details_list);
     lv_obj_clean(alert_details_list);
-    if (!config->rule_count) curio_view_text(curio_view_label(alert_details_list, 12, 12, 424, &lv_font_montserrat_18, CURIO_COLOR_MUTED), "No rules");
+    if (!config->rule_count) curio_view_text(curio_view_label(alert_details_list, 12, 12, 424, &curio_font_18, CURIO_COLOR_MUTED), "No rules");
     for (size_t i = 0; i < config->rule_count; i++) alert_rule_card(&config->rules[i], config);
     lv_obj_update_layout(alert_details_list);
     lv_obj_scroll_to_y(alert_details_list, scroll, LV_ANIM_OFF);
@@ -432,7 +431,7 @@ static void preview_start(lv_event_t *event)
 }
 static lv_obj_t *settings_toggle(const char *caption, int y)
 {
-    curio_view_text(curio_view_label(settings_mask, 24, y + 9, 330, &lv_font_montserrat_18, CURIO_COLOR_FG), caption);
+    curio_view_text(curio_view_label(settings_mask, 24, y + 9, 330, &curio_font_18, CURIO_COLOR_FG), caption);
     lv_obj_t *toggle = lv_switch_create(settings_mask);
     lv_obj_set_pos(toggle, 388, y);
     lv_obj_set_size(toggle, 64, 36);
@@ -476,8 +475,8 @@ static void settings_slider_change(lv_event_t *event)
 }
 static lv_obj_t *settings_slider(const char *caption, int y, int minimum, lv_obj_t **value_label)
 {
-    curio_view_text(curio_view_label(settings_mask, 24, y, 240, &lv_font_montserrat_18, CURIO_COLOR_FG), caption);
-    lv_obj_t *value = curio_view_label(settings_mask, 314, y, 138, &lv_font_montserrat_14, CURIO_COLOR_MUTED);
+    curio_view_text(curio_view_label(settings_mask, 24, y, 240, &curio_font_18, CURIO_COLOR_FG), caption);
+    lv_obj_t *value = curio_view_label(settings_mask, 314, y, 138, &curio_font_14, CURIO_COLOR_MUTED);
     lv_obj_set_style_text_align(value, LV_TEXT_ALIGN_RIGHT, 0);
     *value_label = value;
     lv_obj_t *slider = lv_slider_create(settings_mask);
@@ -495,18 +494,18 @@ static void settings_open(lv_event_t *event)
     curio_view_button(settings_mask, "Wi-Fi", 264, 16, 88, setup_open, NULL);
     rotate_switch = settings_toggle("Auto rotate", 72);
     paging_switch = settings_toggle("Agent auto-page", 120);
-    settings_page = curio_view_label(settings_mask, 24, 162, 420, &lv_font_montserrat_14, CURIO_COLOR_MUTED);
+    settings_page = curio_view_label(settings_mask, 24, 162, 420, &curio_font_14, CURIO_COLOR_MUTED);
     flash_switch = settings_toggle("Flash", 184);
     brightness_slider = settings_slider("Brightness", 234, 5, &brightness_value);
     volume_slider = settings_slider("Volume", 290, 0, &volume_value);
     vibration_slider = settings_slider("Vibration", 346, 0, &vibration_value);
     lv_obj_t *alerts_button = curio_view_button(settings_mask, "", 24, 404, 228, alert_details_open, NULL);
     lv_obj_set_height(alerts_button, 50);
-    curio_view_text(curio_view_label(alerts_button, 12, 4, 164, &lv_font_montserrat_18, CURIO_COLOR_FG), "Alerts");
-    settings_alerts = curio_view_label(alerts_button, 12, 28, 180, &lv_font_montserrat_14, CURIO_COLOR_MUTED);
-    lv_label_set_text(curio_view_label(alerts_button, 198, 16, 18, &lv_font_montserrat_14, CURIO_COLOR_MUTED), LV_SYMBOL_RIGHT);
+    curio_view_text(curio_view_label(alerts_button, 12, 4, 164, &curio_font_18, CURIO_COLOR_FG), "Alerts");
+    settings_alerts = curio_view_label(alerts_button, 12, 28, 180, &curio_font_14, CURIO_COLOR_MUTED);
+    lv_label_set_text(curio_view_label(alerts_button, 198, 16, 18, &curio_font_14, CURIO_COLOR_MUTED), LV_SYMBOL_RIGHT);
     curio_view_button(settings_mask, "Test alert", 276, 408, 180, preview_start, NULL);
-    settings_error = curio_view_label(settings_mask, 24, 458, 432, &lv_font_montserrat_14, 0xE8BD79);
+    settings_error = curio_view_label(settings_mask, 24, 458, 432, &curio_font_14, 0xE8BD79);
     curio_view_text(settings_error, "");
     refresh(NULL);
 }
@@ -553,7 +552,8 @@ static void refresh(lv_timer_t *timer)
     }
     char connection_text[96];
     snprintf(connection_text, sizeof(connection_text), "%s", curio_app.setup_active ? "Wi-Fi setup active" : !curio_app.configured ? "Setup required" : curio_app.network_error[0] ? curio_app.network_error : !curio_app.wifi_connected ? "Wi-Fi disconnected" : !curio_app.https_ready ? "HTTPS unavailable" : "Connected");
-    bool show_setup = curio_app.setup_active && !curio_app.configured && !setup_shown;
+    bool show_setup = curio_app.setup_active && !setup_shown;
+    setup_shown = curio_app.setup_active;
     char setup_text[128];
     if (curio_app.setup_active)
         snprintf(setup_text, sizeof(setup_text), "Network\n%s\n\nPassword\n%s",
@@ -695,27 +695,29 @@ static void refresh(lv_timer_t *timer)
 void curio_ui_start(void)
 {
     bsp_display_config_t display_config = BSP_DISPLAY_DEFAULT_CONFIG();
+    display_config.task_stack_size = 32768;
     display_config.rotation = curio_app.device.rotation;
     lv_display_t *display = bsp_display_start_with_config(&display_config);
     configASSERT(display);
     configASSERT(bsp_display_lock(-1));
+    configASSERT(curio_fonts_init());
     lv_obj_t *screen = lv_screen_active();
     lv_obj_set_style_bg_color(screen, lv_color_hex(0x101822), 0);
     lv_obj_set_style_text_color(screen, lv_color_hex(CURIO_COLOR_FG), 0);
-    lv_obj_set_style_text_font(screen, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_text_font(screen, &curio_font_18, 0);
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t *header = header_button(screen, 12, 142, switch_page);
-    page_title = curio_view_label(header, 20, 10, 116, &lv_font_montserrat_18, CURIO_COLOR_FG);
+    page_title = curio_view_label(header, 20, 10, 116, &curio_font_18, CURIO_COLOR_FG);
     wifi_button = header_icon(screen, 162, LV_SYMBOL_WIFI, network_click);
-    wifi_warning = curio_view_label(wifi_button, 34, 3, 10, &lv_font_montserrat_14, 0xE8BD79);
+    wifi_warning = curio_view_label(wifi_button, 34, 3, 10, &curio_font_14, 0xE8BD79);
     curio_view_text(wifi_warning, "!");
     sound_button = header_icon(screen, 212, LV_SYMBOL_VOLUME_MAX, quick_mute);
     sound_icon = lv_obj_get_child(sound_button, 0);
     vibration_button = header_icon(screen, 262, "", quick_mute);
-    battery_label = curio_view_label(screen, 314, 24, 98, &lv_font_montserrat_14, CURIO_COLOR_MUTED);
+    battery_label = curio_view_label(screen, 314, 24, 98, &curio_font_14, CURIO_COLOR_MUTED);
     lv_obj_set_style_text_align(battery_label, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_t *gear = header_button(screen, 412, 56, settings_open);
-    lv_obj_t *gear_icon = curio_view_label(gear, 0, 0, 32, &lv_font_montserrat_18, CURIO_COLOR_FG);
+    lv_obj_t *gear_icon = curio_view_label(gear, 0, 0, 32, &curio_font_18, CURIO_COLOR_FG);
     lv_label_set_text(gear_icon, LV_SYMBOL_SETTINGS);
     lv_obj_set_style_text_align(gear_icon, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(gear_icon, LV_ALIGN_LEFT_MID, 0, 0);

@@ -11,15 +11,15 @@ static bool create(curio_widget_t *w)
     if (!m) return false;
     memset(m, 0, sizeof(*m));
     w->data = m;
-    lv_obj_t *title = curio_view_label(w->box, 10, 6, width, &lv_font_montserrat_14, CURIO_COLOR_MUTED);
+    lv_obj_t *title = curio_view_label(w->box, 10, 6, width, &curio_font_14, CURIO_COLOR_MUTED);
     curio_view_text(title, config->title);
     for (size_t i = 0; i < 2; i++) {
         int y = 28 + i * (rect.height - 50) / 2;
-        curio_view_text(curio_view_label(w->box, 10, y + 6, 60, &lv_font_montserrat_14, CURIO_COLOR_MUTED), i ? "RAM" : "CPU");
-        m->value[i] = curio_view_label(w->box, 72, y, width - 62, &lv_font_montserrat_26, CURIO_COLOR_FG);
+        curio_view_text(curio_view_label(w->box, 10, y + 6, 60, &curio_font_14, CURIO_COLOR_MUTED), i ? "RAM" : "CPU");
+        m->value[i] = curio_view_label(w->box, 72, y, width - 62, &curio_font_26, CURIO_COLOR_FG);
         lv_obj_set_style_text_align(m->value[i], LV_TEXT_ALIGN_RIGHT, 0);
     }
-    m->detail = curio_view_label(w->box, 10, rect.height - 22, width, &lv_font_montserrat_14, CURIO_COLOR_MUTED);
+    m->detail = curio_view_label(w->box, 10, rect.height - 22, width, &curio_font_14, CURIO_COLOR_MUTED);
     return true;
 }
 static void sample(curio_widget_t *w, const curio_widget_sample_t *ctx)

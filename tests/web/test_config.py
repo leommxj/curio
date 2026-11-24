@@ -20,9 +20,10 @@ device:
   rotation: 90
   auto_rotate: true
 network:
-  ssid: Studio WiFi
-  password: password123
   hostname: curio-studio
+  wifi:
+    - ssid: Studio WiFi
+      password: password123
 tls:
   certificate: |
     -----BEGIN CERTIFICATE-----
@@ -166,7 +167,7 @@ class ConfigBrowserTest(unittest.TestCase):
         self.page.wait_for_function("!deviceDirty")
         document = self.config()
         self.assertEqual(document["device"]["brightness"], 61)
-        self.assertEqual(document["network"]["ssid"], "Studio WiFi")
+        self.assertEqual(document["network"]["wifi"][0]["ssid"], "Studio WiFi")
         self.assertIn("initial-cert", document["tls"]["certificate"])
         self.assertEqual(document["access"]["collector_token"], "collector-token-123456789")
         self.assertEqual(document["screen"]["pages"][0]["widgets"][1]["host"], "workstation")
@@ -196,14 +197,14 @@ class ConfigBrowserTest(unittest.TestCase):
 
     def test_network_edit_certificate_and_restart(self):
         self.tab("device")
-        self.assertEqual(self.page.locator("#network-ssid").input_value(), "Studio WiFi")
+        self.assertEqual(self.page.locator('[data-wifi-index="0"] [data-wifi-field="ssid"]').input_value(), "Studio WiFi")
         self.assertEqual(self.page.locator("#network-hostname").input_value(), "curio-studio")
         with self.page.expect_download() as info:
             self.page.locator("#download-certificate").click()
         self.assertEqual(info.value.suggested_filename, "curio-studio.crt")
         self.assertIn("initial-cert", Path(info.value.path()).read_text())
-        self.page.locator("#network-ssid").fill("New Studio")
-        self.page.locator("#network-ssid").dispatch_event("change")
+        self.page.locator('[data-wifi-index="0"] [data-wifi-field="ssid"]').fill("New Studio")
+        self.page.locator('[data-wifi-index="0"] [data-wifi-field="ssid"]').dispatch_event("change")
         self.page.locator("#network-hostname").fill("curio-renamed")
         self.page.locator("#network-hostname").dispatch_event("change")
         self.assertTrue(self.page.locator("#download-certificate").is_disabled())
@@ -225,6 +226,51 @@ class ConfigBrowserTest(unittest.TestCase):
         self.assertEqual(len(restarts), 1)
         self.assertEqual(restarts[0][0], "POST")
         self.assertEqual(restarts[0][1]["authorization"], "Bearer " + self.admin)
+
+    def test_wifi_list_order_and_validation(self):
+        self.tab("device")
+        self.page.locator("#add-wifi").click()
+        second = self.page.locator('[data-wifi-index="1"]')
+        second.locator('[data-wifi-field="ssid"]').fill("Guest")
+        second.locator('[data-wifi-field="ssid"]').dispatch_event("change")
+        second.locator('[data-wifi-field="password"]').fill("a" * 64)
+        second.locator('[data-wifi-field="password"]').dispatch_event("change")
+        self.page.locator('[data-wifi-index="1"] [data-wifi-move="up"]').click()
+        self.page.locator("#save-device").click()
+        self.page.wait_for_function("!deviceDirty")
+        self.assertEqual(self.config()["network"]["wifi"], [
+            {"ssid": "Guest", "password": "a" * 64},
+            {"ssid": "Studio WiFi", "password": "password123"},
+        ])
+        self.page.locator('[data-wifi-index="1"] [data-wifi-remove]').click()
+        self.page.locator("#save-device").click()
+        self.page.wait_for_function("!deviceDirty")
+        self.assertEqual([wifi["ssid"] for wifi in self.config()["network"]["wifi"]], ["Guest"])
+        self.tab("config")
+        original = self.page.locator("#yaml-editor").input_value()
+        cases = [
+            ("c.network.wifi.push({...c.network.wifi[0]})", "重复"),
+            ("c.network.wifi[0].ssid = ''", "1–32"),
+            ("c.network.wifi[0].ssid = '😀'.repeat(9)", "1–32"),
+            ("c.network.wifi[0].password = 'short'", "password"),
+            ("c.network.wifi[0].password = 'z'.repeat(64)", "password"),
+            ("c.network.wifi = Array(5).fill({ssid:'x'})", "最多 4"),
+            ("c.network.ssid = 'legacy'", "未知字段"),
+        ]
+        for mutation, expected in cases:
+            draft = self.page.evaluate("""args => {
+                const c = jsyaml.load(args.source);
+                eval(args.mutation);
+                return jsyaml.dump(c);
+            }""", {"source": original, "mutation": mutation})
+            self.page.locator("#yaml-editor").fill(draft)
+            self.tab("device")
+            self.assertTrue(self.page.locator("#yaml-editor").is_visible())
+            self.assertIn(expected, self.page.locator("#status").inner_text())
+        empty = self.page.evaluate("source => { const c = jsyaml.load(source); c.network.wifi = []; return jsyaml.dump(c); }", original)
+        self.page.locator("#yaml-editor").fill(empty)
+        self.tab("device")
+        self.assertEqual(self.page.locator(".wifi-row").count(), 0)
 
     def test_reported_data_refresh_and_metric_binding(self):
         self.state = {"hosts": [{
@@ -301,7 +347,7 @@ class ConfigBrowserTest(unittest.TestCase):
         self.tab("device")
         self.assertEqual(self.page.locator("#brightness").input_value(), "24")
 
-    def test_module_cases_match_native_config(self):
+    def test_example_and_module_cases_match_native_config(self):
         root = WEB.parents[2]
         spec = importlib.util.spec_from_file_location("curio_dev_hub", root / "scripts/dev/hub.py")
         hub = importlib.util.module_from_spec(spec)
@@ -309,6 +355,10 @@ class ConfigBrowserTest(unittest.TestCase):
         core = hub.Core()
         registry = json.loads((root / "firmware/modules/registry.json").read_text())
         try:
+            example = (root / "curio.example.yaml").read_text()
+            self.page.evaluate("parseConfig", example)
+            canonical = core.config_yaml(example.encode()).decode()
+            self.page.evaluate("parseConfig", canonical)
             for category, names in registry.items():
                 for name in names:
                     path = root / "firmware/modules" / category / name / "cases.json"

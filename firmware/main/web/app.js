@@ -345,8 +345,28 @@ function parseConfig(source) {
       ["brightness", "rotation", "auto_rotate", "ntp_server"],
       "device",
     );
-  if (value.network !== undefined)
-    keys(value.network, ["ssid", "password", "hostname"], "network");
+  if (value.network !== undefined) {
+    keys(value.network, ["wifi", "hostname"], "network");
+    if (value.network.wifi !== undefined) {
+      if (!Array.isArray(value.network.wifi) || value.network.wifi.length > 4)
+        throw Error("network.wifi 须为最多 4 个网络的列表");
+      const seen = new Set();
+      for (const [i, wifi] of value.network.wifi.entries()) {
+        const path = `network.wifi[${i}]`;
+        keys(wifi, ["ssid", "password"], path);
+        if (typeof wifi.ssid !== "string" || bytes(wifi.ssid) < 1 || bytes(wifi.ssid) > 32)
+          throw Error(`${path}.ssid 须为 1–32 字节`);
+        if (seen.has(wifi.ssid)) throw Error(`Wi-Fi 名称重复: ${wifi.ssid}`);
+        seen.add(wifi.ssid);
+        if (wifi.password !== undefined &&
+          (typeof wifi.password !== "string" ||
+            (wifi.password !== "" &&
+              !((bytes(wifi.password) >= 8 && bytes(wifi.password) <= 63) ||
+                /^[0-9a-fA-F]{64}$/.test(wifi.password)))))
+          throw Error(`${path}.password 须为 8–63 字节或 64 位十六进制 PSK`);
+      }
+    }
+  }
   if (value.tls !== undefined)
     keys(value.tls, ["certificate", "private_key"], "tls");
   keys(value.screen, ["default_page", "pages"], "screen");
@@ -459,12 +479,7 @@ function parseConfig(source) {
   }
   scalarTypes(value, "config");
   validateNtp(value.device?.ntp_server ?? "pool.ntp.org");
-  const ssid = value.network?.ssid ?? "",
-    password = value.network?.password ?? "",
-    hostname = value.network?.hostname ?? "curio";
-  if (bytes(ssid) > 32) throw Error("network.ssid 最多 32 字节");
-  if (password && (bytes(password) < 8 || bytes(password) > 63))
-    throw Error("network.password 须为 8–63 字节，或留空");
+  const hostname = value.network?.hostname ?? "curio";
   if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,30}[A-Za-z0-9])?$/.test(hostname))
     throw Error("network.hostname 须为 1–32 位主机名");
   if (
@@ -528,7 +543,7 @@ function loadFormConfig(value) {
       id: r.id ?? `rule-${i + 1}`,
     })),
   };
-  network = { ssid: "", password: "", hostname: "curio", ...value.network };
+  network = { hostname: "curio", wifi: [], ...clone(value.network ?? {}) };
   selected = Math.max(0, Math.min(selected, display.pages.length - 1));
 }
 function configFromForms() {
@@ -543,8 +558,10 @@ function configFromForms() {
         : {}),
     },
     network: {
-      ssid: network.ssid,
-      ...(network.password ? { password: network.password } : {}),
+      wifi: network.wifi.map(({ ssid, password }) => ({
+        ssid,
+        ...(password ? { password } : {}),
+      })),
       ...(network.hostname !== "curio" ? { hostname: network.hostname } : {}),
     },
     screen: {
@@ -957,8 +974,18 @@ function renderEditor() {
     return;
   }
   if (tab === "device") {
+    const wifiRows = network.wifi.map((wifi, i) => `
+      <div class="wifi-row" data-wifi-index="${i}">
+        <div class="wifi-row-heading"><strong>网络 ${i + 1}</strong><div class="wifi-actions">
+          <button type="button" data-wifi-move="up" ${i === 0 ? "disabled" : ""} aria-label="网络 ${i + 1} 上移">上移</button>
+          <button type="button" data-wifi-move="down" ${i === network.wifi.length - 1 ? "disabled" : ""} aria-label="网络 ${i + 1} 下移">下移</button>
+          <button type="button" data-wifi-remove aria-label="删除网络 ${i + 1}">删除</button>
+        </div></div>
+        <label>Wi-Fi 名称<input data-wifi-field="ssid" maxlength="32" value="${esc(wifi.ssid)}" autocomplete="off"></label>
+        <label>Wi-Fi 密码<input data-wifi-field="password" type="password" maxlength="64" value="${esc(wifi.password ?? "")}" autocomplete="off" placeholder="留空表示开放网络"></label>
+      </div>`).join("");
     $("#editor").innerHTML =
-      `<section class="panel"><h2>设备</h2><label>NTP 服务器<input id="ntp-server" maxlength="127" value="${esc(device.ntp_server)}"></label><label>亮度<input id="brightness" type="number" min="0" max="100" value="${device.brightness}"></label><label class="switch-field"><input id="auto-rotate" type="checkbox" role="switch" ${device.auto_rotate ? "checked" : ""}><span>自动旋转</span></label><label>手动方向<select id="rotation" ${device.auto_rotate ? "disabled" : ""}>${[0, 90, 180, 270].map((x) => `<option value="${x}" ${x === device.rotation ? "selected" : ""}>${x}°</option>`).join("")}</select></label><h3>网络</h3><label>Wi-Fi 名称<input id="network-ssid" maxlength="32" value="${esc(network.ssid)}"></label><label>Wi-Fi 密码<input id="network-password" type="password" maxlength="63" value="${esc(network.password)}"></label><label>主机名<input id="network-hostname" maxlength="32" value="${esc(network.hostname)}"></label><p>网络设置和证书在重启后生效。</p><div class="actions"><button id="save-device">保存</button><button id="reload">重新加载</button><button id="restart-device">重启</button><button id="download-certificate" ${configDocument.tls?.certificate ? "" : "disabled"}>下载证书</button></div></section>`;
+      `<section class="panel"><h2>设备</h2><label>NTP 服务器<input id="ntp-server" maxlength="127" value="${esc(device.ntp_server)}"></label><label>亮度<input id="brightness" type="number" min="0" max="100" value="${device.brightness}"></label><label class="switch-field"><input id="auto-rotate" type="checkbox" role="switch" ${device.auto_rotate ? "checked" : ""}><span>自动旋转</span></label><label>手动方向<select id="rotation" ${device.auto_rotate ? "disabled" : ""}>${[0, 90, 180, 270].map((x) => `<option value="${x}" ${x === device.rotation ? "selected" : ""}>${x}°</option>`).join("")}</select></label><div class="wifi-heading"><h3>Wi-Fi 网络</h3><button id="add-wifi" ${network.wifi.length >= 4 ? "disabled" : ""}>添加网络</button></div>${wifiRows}<label>主机名<input id="network-hostname" maxlength="32" value="${esc(network.hostname)}"></label><p>网络设置和证书在重启后生效。</p><div class="actions"><button id="save-device">保存</button><button id="reload">重新加载</button><button id="restart-device">重启</button><button id="download-certificate" ${configDocument.tls?.certificate ? "" : "disabled"}>下载证书</button></div></section>`;
     return;
   }
   const p = page();
@@ -1149,13 +1176,10 @@ document.addEventListener("change", (e) => {
     status("");
     return;
   }
-  if (
-    t.id === "network-ssid" ||
-    t.id === "network-password" ||
-    t.id === "network-hostname"
-  ) {
-    network[t.id.slice(8)] =
-      t.id === "network-hostname" ? t.value.trim() : t.value;
+  if (t.dataset.wifiField || t.id === "network-hostname") {
+    if (t.dataset.wifiField)
+      network.wifi[Number(t.closest("[data-wifi-index]").dataset.wifiIndex)][t.dataset.wifiField] = t.value;
+    else network.hostname = t.value.trim();
     $("#download-certificate").disabled =
       !configDocument.tls?.certificate ||
       network.hostname !== (configDocument.network?.hostname ?? "curio");
@@ -1252,6 +1276,26 @@ document.addEventListener("click", async (e) => {
       renderEditor();
     } else if (t.id === "save-alerts") {
       await saveConfig();
+    } else if (t.id === "add-wifi") {
+      if (network.wifi.length >= 4) return;
+      network.wifi.push({ ssid: "", password: "" });
+      deviceDirty = true;
+      status("");
+      renderEditor();
+      $(`.wifi-row[data-wifi-index="${network.wifi.length - 1}"] [data-wifi-field=ssid]`)?.focus();
+    } else if (t.hasAttribute("data-wifi-remove")) {
+      network.wifi.splice(Number(t.closest("[data-wifi-index]").dataset.wifiIndex), 1);
+      deviceDirty = true;
+      status("");
+      renderEditor();
+    } else if (t.dataset.wifiMove) {
+      const i = Number(t.closest("[data-wifi-index]").dataset.wifiIndex);
+      const j = i + (t.dataset.wifiMove === "up" ? -1 : 1);
+      if (j < 0 || j >= network.wifi.length) return;
+      [network.wifi[i], network.wifi[j]] = [network.wifi[j], network.wifi[i]];
+      deviceDirty = true;
+      status("");
+      renderEditor();
     } else if (t.id === "reload-alerts") {
       await reloadConfig();
     } else if (t.id === "add-widget") addWidget();

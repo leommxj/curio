@@ -17,8 +17,8 @@ def register(output, name, header, type_name, symbols):
     lines = [f'#include "{header}"']
     lines += [f'extern const {type_name} {symbol};' for symbol in symbols]
     lines += [f'const {type_name} *const {name}s[] = {{']
-    lines += [f'    &{symbol},' for symbol in symbols]
-    lines += ['};', f'const size_t {name}_count = sizeof({name}s) / sizeof({name}s[0]);']
+    lines += [f'    &{symbol},' for symbol in symbols] or ['    NULL,']
+    lines += ['};', f'const size_t {name}_count = {len(symbols)};']
     write(output, '\n'.join(lines) + '\n')
 
 
@@ -32,7 +32,7 @@ def generate(output=None):
     for plural, kind in [('widgets', 'widget'), ('alerts', 'alert')]:
         names = registry[plural]
         groups[plural] = [path for name in names for path in sorted((MODULES / plural / name).glob('*.c'))
-                          if path.name not in ('view.c', 'test.c')]
+                          if path.name not in ('view.c', 'device.c', 'test.c')]
         tested = [name for name in names if (MODULES / plural / name / 'test.c').exists()]
         test_file = output / f'{kind}_tests.c'
         declarations = [f'void test_{kind}_{name}(void);' for name in tested]
@@ -46,6 +46,9 @@ def generate(output=None):
     views = [MODULES / 'widgets' / name / 'view.c' for name in registry['widgets']]
     register(output / 'widget_views.c', 'curio_widget_view', 'curio_widget_view.h', 'curio_widget_view_t',
              [f'curio_widget_{name}_view' for name in registry['widgets']])
+    services = [name for name in registry['widgets'] if (MODULES / 'widgets' / name / 'device.c').exists()]
+    register(output / 'widget_services.c', 'curio_widget_service', 'curio_widget_service.h', 'curio_widget_service_t',
+             [f'curio_widget_{name}_service' for name in services])
     web = ROOT / 'firmware/main/web'
     js = ['const widgetTypes = {}, alertTypes = {};']
     css = [(web / 'style.css').read_text()]
@@ -61,7 +64,8 @@ def generate(output=None):
     js.append((web / 'app.js').read_text())
     write(output / 'app.js', '\n'.join(js) + '\n')
     write(output / 'style.css', '\n'.join(css) + '\n')
-    groups.update(common=[MODULES / 'config.c'], views=[MODULES / 'view.c', *views])
+    groups.update(common=[MODULES / 'config.c'], views=[MODULES / 'view.c', *views],
+                  services=[MODULES / 'widgets' / name / 'device.c' for name in services])
     cmake = []
     for key, paths in groups.items():
         cmake.append('set(CURIO_MODULE_' + key.upper() + '\n' + '\n'.join(f'    "{p}"' for p in paths) + '\n)')

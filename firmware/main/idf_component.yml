@@ -1,4 +1,5 @@
 dependencies:
   idf: ">=6.2"
   espressif/mdns: "1.12.0"
+  espressif/freetype: "2.15.0"
   lvgl/lvgl: "==9.5.0"

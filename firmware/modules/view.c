@@ -5,14 +5,18 @@
 
 void curio_view_text(lv_obj_t *obj, const char *value)
 {
-    char ascii[192];
-    size_t n = 0;
-    for (const unsigned char *p = (const unsigned char *)value; *p && n + 1 < sizeof(ascii); p++) {
-        if (*p < 128) ascii[n++] = *p >= 32 ? *p : ' ';
-        else if ((*p & 0xC0) != 0x80) ascii[n++] = '?';
+    char text[256];
+    size_t n = 0, length = strlen(value);
+    while (n < length) {
+        unsigned char c = value[n];
+        size_t bytes = c < 0x80 ? 1 : c < 0xE0 ? 2 : c < 0xF0 ? 3 : 4;
+        if (n + bytes >= sizeof(text) || n + bytes > length) break;
+        memcpy(text + n, value + n, bytes);
+        if (c < 32) text[n] = ' ';
+        n += bytes;
     }
-    ascii[n] = 0;
-    if (strcmp(lv_label_get_text(obj), ascii)) lv_label_set_text(obj, ascii);
+    text[n] = 0;
+    if (strcmp(lv_label_get_text(obj), text)) lv_label_set_text(obj, text);
 }
 
 lv_obj_t *curio_view_label(lv_obj_t *parent, int x, int y, int width, const lv_font_t *font, uint32_t color)
@@ -35,7 +39,7 @@ lv_obj_t *curio_view_button(lv_obj_t *parent, const char *caption, int x, int y,
     lv_obj_set_style_bg_color(obj, lv_color_hex(0x243243), 0);
     lv_obj_set_style_shadow_width(obj, 0, 0);
     lv_obj_add_event_cb(obj, callback, LV_EVENT_CLICKED, data);
-    lv_obj_t *name = curio_view_label(obj, 0, 0, width, &lv_font_montserrat_14, CURIO_COLOR_FG);
+    lv_obj_t *name = curio_view_label(obj, 0, 0, width, &curio_font_14, CURIO_COLOR_FG);
     curio_view_text(name, caption);
     lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(name);
@@ -105,10 +109,10 @@ void curio_widget_destroy(curio_widget_t *w)
 void curio_view_metric_value(lv_obj_t *value, const char *caption, int height)
 {
     bool number = (caption[0] >= '0' && caption[0] <= '9') || caption[0] == '-';
-    const lv_font_t *font = number ? &lv_font_montserrat_26 : &lv_font_montserrat_18;
+    const lv_font_t *font = number ? &curio_font_26 : &curio_font_18;
     lv_point_t size;
     lv_text_get_size(&size, caption, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-    if (size.x > lv_obj_get_style_width(value, 0)) font = &lv_font_montserrat_14;
+    if (size.x > lv_obj_get_style_width(value, 0)) font = &curio_font_14;
     lv_obj_set_style_text_font(value, font, 0);
     lv_label_set_long_mode(value, height > 0 && !number ? LV_LABEL_LONG_WRAP : LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_height(value, height > 0 ? height : LV_SIZE_CONTENT);

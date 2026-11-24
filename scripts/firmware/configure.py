@@ -35,9 +35,10 @@ def config_yaml(ssid, password, hostname, certificate, private_key, admin_token,
     return (
         'version: 1\n'
         'network:\n'
-        f'  ssid: {scalar(ssid)}\n'
-        f'  password: {scalar(password)}\n'
         f'  hostname: {scalar(hostname)}\n'
+        '  wifi:\n'
+        f'    - ssid: {scalar(ssid)}\n'
+        f'      password: {scalar(password)}\n'
         'tls:\n'
         + pem_field('certificate', certificate)
         + pem_field('private_key', private_key)
@@ -79,8 +80,10 @@ def main(argv=None):
         password = os.environ[args.password_env]
     else:
         password = getpass.getpass('Wi-Fi password: ')
-    if not args.open_wifi and not (8 <= len(password.encode('utf-8')) <= 63 and '\0' not in password):
-        parser.error('WPA password must be 8–63 UTF-8 bytes; use --open-wifi for an open network')
+    password_bytes = password.encode('utf-8')
+    valid_psk = len(password_bytes) == 64 and re.fullmatch(r'[0-9a-fA-F]{64}', password)
+    if not args.open_wifi and not ((8 <= len(password_bytes) <= 63 or valid_psk) and '\0' not in password):
+        parser.error('WPA password must be 8–63 UTF-8 bytes or a 64-digit hex PSK; use --open-wifi for an open network')
     try:
         addresses = [str(ipaddress.ip_address(value)) for value in args.ip]
     except ValueError as exc:

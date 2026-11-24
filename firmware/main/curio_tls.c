@@ -53,7 +53,7 @@ done:
 
 esp_err_t curio_tls_prepare(curio_config_t *config)
 {
-    if (!config->network.ssid[0] && !config->tls.certificate[0]) return ESP_OK;
+    if (!config->network.wifi_count && !config->tls.certificate[0]) return ESP_OK;
     if (psa_crypto_init() != PSA_SUCCESS) return ESP_FAIL;
     if (!config->tls.certificate[0]) return generate(config) == 0 ? ESP_OK : ESP_FAIL;
     mbedtls_x509_crt cert;

@@ -72,13 +72,13 @@ static bool create(curio_widget_t *w)
     }
     for (size_t i = 0; i < rows; i++) {
         agent_view_row_t *row = &a->rows[i];
-        row->name = curio_view_label(w->box, 10, 44 + i * 47, width - 130, &lv_font_montserrat_18, CURIO_COLOR_FG);
-        row->state = curio_view_label(w->box, rect.width - 130, 44 + i * 47, 120, &lv_font_montserrat_18, CURIO_COLOR_MUTED);
+        row->name = curio_view_label(w->box, 10, 44 + i * 47, width - 130, &curio_font_18, CURIO_COLOR_FG);
+        row->state = curio_view_label(w->box, rect.width - 130, 44 + i * 47, 120, &curio_font_18, CURIO_COLOR_MUTED);
         lv_obj_set_style_text_align(row->state, LV_TEXT_ALIGN_RIGHT, 0);
-        row->detail = curio_view_label(w->box, 10, 65 + i * 47, width, &lv_font_montserrat_14, CURIO_COLOR_MUTED);
+        row->detail = curio_view_label(w->box, 10, 65 + i * 47, width, &curio_font_14, CURIO_COLOR_MUTED);
     }
-    a->status = curio_view_label(w->box, 10, rect.height - 40, width, &lv_font_montserrat_14, 0xE8BD79);
-    a->footer = curio_view_label(w->box, 10, rect.height - 22, width, &lv_font_montserrat_14, CURIO_COLOR_MUTED);
+    a->status = curio_view_label(w->box, 10, rect.height - 40, width, &curio_font_14, 0xE8BD79);
+    a->footer = curio_view_label(w->box, 10, rect.height - 22, width, &curio_font_14, CURIO_COLOR_MUTED);
     lv_obj_set_style_text_align(a->footer, LV_TEXT_ALIGN_CENTER, 0);
     return true;
 }

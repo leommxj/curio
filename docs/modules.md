@@ -7,6 +7,7 @@ Add each type under `firmware/modules/widgets/<name>/` or `firmware/modules/aler
 | `config.h` | Options structure and type descriptor declaration |
 | `config.c` for widgets | Configuration parsing, validation and YAML output |
 | `view.c`, `view.h` for widgets | LVGL view, sampled values and rendering |
+| `device.c` for widgets | Optional background service using ESP-IDF |
 | `rule.c` for alerts | Configuration, detection state and notifications |
 | `web.js` | Browser schema, editor and preview or summary |
 | `style.css` | Optional module styles |
@@ -33,7 +34,11 @@ Export `curio_widget_<name>_view` (`curio_widget_view_t`):
 
 Common code deletes the card and frees its data and configuration. Only the active page creates views. Views share the UI task; sampling must not call LVGL or retain model pointers. Use `invalidate` to request a refresh after input.
 
+Use `curio_font_14/18/26/32/48` for labels and text measurement. `curio_view_text` preserves UTF-8 and truncates at character boundaries. The shared [font component](../firmware/components/curio_fonts/README.md) handles Chinese rendering.
+
 `services` declares shared requirements such as `CURIO_SERVICE_TIME`, which enables SNTP while any configured widget needs it. Optional `paging` and `set_paging` callbacks expose automatic paging in device Settings.
+
+A widget with `device.c` exports `curio_widget_<name>_service`. Its `configure` callback receives the full layout under the application lock when that layout changes. Its `poll` callback runs in the existing network task outside the lock. Keep requests asynchronous and acquire the application lock when sharing cached data with views. Release caches for removed configurations. The build registry discovers these services; portable helpers stay beside `device.c`.
 
 ## Alert rules
 

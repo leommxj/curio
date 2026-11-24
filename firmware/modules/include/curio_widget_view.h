@@ -1,6 +1,7 @@
 #pragma once
 #include "curio_layout.h"
 #include "lvgl.h"
+#include "curio_fonts.h"
 #include <time.h>
 
 typedef struct curio_widget curio_widget_t;

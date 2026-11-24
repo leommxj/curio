@@ -19,6 +19,7 @@ void fixture_alerts_dismiss(curio_alerts_t *, uint64_t);
 #include "../../firmware/modules/widgets/metric/view.h"
 #include "../../firmware/modules/widgets/status/view.h"
 #include "../../firmware/modules/widgets/clock/view.h"
+#include "../../firmware/modules/widgets/weather/view.h"
 #include "../../firmware/modules/widgets/machine/view.h"
 #include "../../firmware/modules/alerts/agent_done/config.h"
 #include "../../firmware/modules/alerts/metric_high/config.h"
@@ -320,7 +321,7 @@ static void battery_checks(void)
     lv_obj_update_layout(lv_screen_active());
     lv_point_t size;
     lv_text_get_size(&size, LV_SYMBOL_CHARGE " " LV_SYMBOL_BATTERY_FULL " 100%",
-                     &lv_font_montserrat_14, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+                     &curio_font_14, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
     assert(size.x <= lv_obj_get_width(battery_label));
     assert(lv_obj_get_x(vibration_button) + lv_obj_get_width(vibration_button) <= lv_obj_get_x(battery_label));
     at(now + 15001);
@@ -480,12 +481,12 @@ static void tap(int x, int y)
 static void setup_checks(void)
 {
     strcpy(curio_app.setup_ssid, "Curio-123456");
-    strcpy(curio_app.setup_password, "abcdef1234567890");
+    strcpy(curio_app.setup_password, "01234567");
     curio_app.setup_active = true;
     refresh(NULL);
     lv_obj_update_layout(lv_screen_active());
     assert(setup_mask && setup_shown && setup_starts == 1);
-    assert(!strcmp(lv_label_get_text(setup_details), "Network\nCurio-123456\n\nPassword\nabcdef1234567890"));
+    assert(!strcmp(lv_label_get_text(setup_details), "Network\nCurio-123456\n\nPassword\n01234567"));
     assert(!strcmp(lv_label_get_text(lv_obj_get_child(setup_mask, -1)), "http://192.168.4.1"));
     tap(410, 38);
     assert(!setup_mask && setup_stops == 1);
@@ -510,7 +511,17 @@ static void setup_checks(void)
     assert(!setup_mask && setup_stops == 2);
     tap(410, 38);
     assert(!settings_mask);
-    puts("Wi-Fi setup: initial prompt, credentials, manual reopen and close passed");
+    refresh(NULL);
+    curio_app.configured = true;
+    curio_app.setup_active = true;
+    refresh(NULL);
+    lv_obj_update_layout(lv_screen_active());
+    assert(setup_mask && setup_starts == 3);
+    tap(410, 38);
+    refresh(NULL);
+    assert(!setup_mask && setup_stops == 3);
+    curio_app.configured = false;
+    puts("Wi-Fi setup: initial prompt, credentials, manual reopen, external trigger and close passed");
 }
 static void settings_checks(void)
 {
@@ -1044,7 +1055,7 @@ static void grid_checks(void)
     lv_point_t size;
     lv_text_get_size(&size, "100%", lv_obj_get_style_text_font(m->value, 0), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
     assert(size.x <= lv_obj_get_width(m->value));
-    assert(lv_obj_get_style_text_font(m->value, 0) == &lv_font_montserrat_26);
+    assert(lv_obj_get_style_text_font(m->value, 0) == &curio_font_26);
     assert(((metric_payload_t *)widgets[1]->data)->detail);
     assert(!strcmp(lv_label_get_text(((metric_payload_t *)widgets[1]->data)->detail), "Workstation"));
     assert(!strcmp(lv_label_get_text(((machine_payload_t *)widgets[2]->data)->value[1]), "99.9%"));
@@ -1157,6 +1168,45 @@ static void status_widget_checks(void)
     assert(!curio_ui_widget_count() && lv_obj_get_child_count(lv_screen_active()) == children - 2);
     puts("Status widgets: business state, collection failures, freshness and lifecycle passed");
 }
+static void weather_widget_checks(void)
+{
+    curio_page_config_t *page = &curio_app.layout.pages[0];
+    const unsigned sizes[][2] = {{1, 1}, {2, 1}, {1, 2}, {2, 2}, {4, 6}};
+    for (size_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++) {
+        curio_page_free(page);
+        page->widget_count = 1;
+        page->widgets[0] = fixture_widget(&curio_widget_weather, sizes[i][0], sizes[i][1]);
+        curio_weather_config_t *options = page->widgets[0].options;
+        strcpy(options->city, "上海");
+        options->latitude = 31.22;
+        options->longitude = 121.46;
+        curio_weather_configure(&curio_app.layout);
+        curio_app.layout.revision++;
+        refresh(NULL);
+        curio_weather_complete(options->latitude, options->longitude, now,
+            "{\"current\":{\"temperature_2m\":-12.2,\"relative_humidity_2m\":61,\"weather_code\":3}}");
+        refresh(NULL);
+        lv_obj_update_layout(lv_screen_active());
+        weather_payload_t *p = widgets[0]->data;
+        assert(!strcmp(lv_label_get_text(p->temperature), "-12°"));
+        if (p->condition) assert(!strcmp(lv_label_get_text(p->condition), "Cloudy"));
+        if (p->humidity) assert(!strcmp(lv_label_get_text(p->humidity), "61% RH"));
+        for (unsigned j = 0; j < lv_obj_get_child_count(widgets[0]->box); j++) {
+            lv_obj_t *label = lv_obj_get_child(widgets[0]->box, j);
+            assert(lv_obj_get_y(label) >= 0);
+            assert(lv_obj_get_y(label) + lv_obj_get_height(label) <= lv_obj_get_height(widgets[0]->box));
+        }
+        curio_weather_complete(options->latitude, options->longitude, now + 1, NULL);
+        refresh(NULL);
+        assert(!strcmp(lv_label_get_text(p->temperature), "-12°"));
+        if (p->condition) assert(!strcmp(lv_label_get_text(p->condition), "Stale"));
+    }
+    curio_page_free(page);
+    curio_weather_configure(&curio_app.layout);
+    curio_app.layout.revision++;
+    refresh(NULL);
+    puts("Weather: grid sizes, Chinese city, current values, stale cache and removal passed");
+}
 static void clock_widget_checks(void)
 {
     curio_page_config_t *p = &curio_app.layout.pages[0];
@@ -1188,7 +1238,7 @@ static void clock_widget_checks(void)
         assert(lv_obj_get_y(time) >= 23);
         assert(lv_obj_get_y(time) + size.y <= lv_obj_get_height(widgets[i]->box));
     }
-    assert(lv_obj_get_style_text_font(large->time, 0) == &lv_font_montserrat_48);
+    assert(lv_obj_get_style_text_font(large->time, 0) == &curio_font_48);
     clock_now++;
     refresh(NULL);
     assert(!strcmp(lv_label_get_text(small->time), "00:00:01"));
@@ -1221,6 +1271,51 @@ static void clock_widget_checks(void)
     assert(!curio_ui_widget_count() && lv_obj_get_child_count(lv_screen_active()) == children - 2);
     puts("Clock widgets: ticking, timezone, unsynced time, sizing and lifecycle passed");
 }
+static void chinese_checks(void)
+{
+    const lv_font_t *fonts[] = {&curio_font_14, &curio_font_18, &curio_font_26, &curio_font_32, &curio_font_48};
+    const lv_font_t *latin[] = {&lv_font_montserrat_14, &lv_font_montserrat_18, &lv_font_montserrat_26, &lv_font_montserrat_32, &lv_font_montserrat_48};
+    const uint32_t letters[] = {0x4E2D, 0x6587, 0x673A, 0x5668, 0x72B6, 0x6001, 0xFF0C, 0x3002};
+    lv_obj_t *panel = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(panel, 460, 400);
+    lv_obj_set_style_bg_color(panel, lv_color_black(), 0);
+    for (size_t i = 0; i < 5; i++) {
+        lv_font_glyph_dsc_t g, original;
+        assert(lv_font_get_glyph_dsc(fonts[i], &g, '8', 0));
+        assert(lv_font_get_glyph_dsc(latin[i], &original, '8', 0));
+        assert(g.adv_w == original.adv_w && g.box_h == original.box_h);
+        for (size_t j = 0; j < sizeof(letters) / sizeof(letters[0]); j++) {
+            assert(lv_font_get_glyph_dsc(fonts[i], &g, letters[j], 0));
+            assert(g.resolved_font == fonts[i]->fallback && !g.is_placeholder);
+            int top = fonts[i]->line_height - fonts[i]->base_line - g.box_h - g.ofs_y;
+            assert(top >= 0 && top + g.box_h <= fonts[i]->line_height);
+            assert(lv_font_get_glyph_bitmap(&g, NULL));
+            lv_font_glyph_release_draw_data(&g);
+        }
+        lv_obj_t *label = curio_view_label(panel, 0, i * 65, 420, fonts[i], CURIO_COLOR_FG);
+        curio_view_text(label, "中文 Agent 08");
+        assert(!strcmp(lv_label_get_text(label), "中文 Agent 08"));
+    }
+    lv_draw_buf_t *snapshot = lv_snapshot_take(panel, LV_COLOR_FORMAT_RGB888);
+    assert(snapshot);
+    const unsigned char *pixels = snapshot->data;
+    size_t visible = 0;
+    for (size_t i = 0; i < snapshot->data_size; i++) visible += pixels[i] != 0;
+    assert(visible > 1000);
+    lv_draw_buf_destroy(snapshot);
+    lv_obj_t *label = lv_obj_get_child(panel, 0);
+    curio_view_text(label, "中文\xe4\xb8");
+    assert(!strcmp(lv_label_get_text(label), "中文"));
+    char long_text[302] = "A";
+    for (int i = 0; i < 100; i++) memcpy(long_text + 1 + i * 3, "中", 3);
+    long_text[301] = 0;
+    curio_view_text(label, long_text);
+    assert(strlen(lv_label_get_text(label)) == 253);
+    assert(!strcmp(lv_label_get_text(label) + 250, "中"));
+    lv_obj_delete(panel);
+    puts("Chinese: embedded font, all five sizes, Latin metrics, glyph rendering and UTF-8 boundaries passed");
+}
+
 int main(void)
 {
     lv_init();
@@ -1248,6 +1343,7 @@ int main(void)
     n += (size_t)snprintf(json + n, sizeof(json) - n, "]}}}");
     assert(curio_core_apply_json(&curio_app.core, json, n, 0) == CURIO_OK);
     curio_ui_start();
+    chinese_checks();
     lv_obj_update_layout(lv_screen_active());
     setup_checks();
     for (size_t i = 0; i < 3; i++)
@@ -1308,6 +1404,7 @@ int main(void)
     grid_checks();
     status_widget_checks();
     clock_widget_checks();
+    weather_widget_checks();
     curio_layout_free(&curio_app.layout);
     curio_core_destroy(&curio_app.core);
     return 0;

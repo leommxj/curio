@@ -1,4 +1,4 @@
 {
-  "widgets": ["metric", "status", "clock", "machine", "agents"],
+  "widgets": ["metric", "status", "clock", "weather", "machine", "agents"],
   "alerts": ["metric_high", "agent_done", "host_offline"]
 }

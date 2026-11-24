@@ -109,6 +109,8 @@ test-collector:
 test-core: deps-host
 	$(MAKE) -C tests/core test
 	$(MAKE) -C tests/clock test
+	$(MAKE) -C tests/weather test
+	$(MAKE) -C tests/wifi test
 	$(MAKE) -C tests/layout test
 	$(MAKE) -C tests/alerts test
 	$(MAKE) -C tests/config test

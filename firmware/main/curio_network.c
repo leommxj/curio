@@ -1,6 +1,8 @@
 #include "curio_app.h"
 #include "curio_feedback.h"
 #include "curio_clock.h"
+#include "curio_wifi.h"
+#include "curio_widget_service.h"
 
 #include "curio_web_assets.h"
 #include <stdio.h>
@@ -25,6 +27,7 @@
 #define NETWORK_CONNECTED 1U
 #define NETWORK_DISCONNECTED 2U
 #define NETWORK_SETUP_CHANGED 4U
+#define NETWORK_SETUP_READY 8U
 
 static const char *TAG = "curio_network";
 static TaskHandle_t network_task_handle;
@@ -204,6 +207,12 @@ static esp_err_t restart_handler(httpd_req_t *req)
         error_response(req, "503 Service Unavailable", "restart failed");
 }
 
+static esp_err_t reset_handler(httpd_req_t *req)
+{
+    esp_err_t result = curio_settings_reset();
+    return result == ESP_OK ? restart_handler(req) : save_error(req, result, NULL);
+}
+
 static esp_err_t token_handler(httpd_req_t *req)
 {
     if (!authorized(req, true)) return require_auth(req);
@@ -288,7 +297,7 @@ static esp_err_t web_handler(httpd_req_t *req)
         httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
         httpd_resp_set_hdr(req, "Cache-Control", "no-store");
         httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
-        httpd_resp_set_hdr(req, "Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'");
+        httpd_resp_set_hdr(req, "Content-Security-Policy", "default-src 'self'; connect-src 'self' https://geocoding-api.open-meteo.com; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'");
         for (size_t offset = 0; offset < asset->size; offset += 2048) {
             size_t size = asset->size - offset;
             if (size > 2048) size = 2048;
@@ -342,24 +351,34 @@ static esp_err_t start_server(const curio_tls_config_t *tls)
 static esp_err_t start_setup(void)
 {
     wifi_config_t ap = {.ap = {.channel = 1, .max_connection = 2, .authmode = WIFI_AUTH_WPA2_PSK}};
-    uint8_t mac[6], random[8];
+    uint8_t mac[6];
     ESP_ERROR_CHECK(esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP));
-    esp_fill_random(random, sizeof(random));
     snprintf((char *)ap.ap.ssid, sizeof(ap.ap.ssid), "Curio-%02X%02X%02X", mac[3], mac[4], mac[5]);
-    for (size_t i = 0; i < sizeof(random); i++) snprintf((char *)ap.ap.password + i * 2, 3, "%02x", random[i]);
+    snprintf((char *)ap.ap.password, sizeof(ap.ap.password), "%08u", (unsigned)(esp_random() % 100000000));
     ap.ap.ssid_len = strlen((char *)ap.ap.ssid);
-    esp_err_t result = esp_wifi_set_mode(curio_app.configured ? WIFI_MODE_APSTA : WIFI_MODE_AP);
+    esp_err_t result = esp_wifi_stop();
+    if (result == ESP_OK) result = esp_wifi_set_mode(curio_app.configured ? WIFI_MODE_APSTA : WIFI_MODE_AP);
     if (result == ESP_OK) result = esp_wifi_set_config(WIFI_IF_AP, &ap);
+    if (result == ESP_OK) result = esp_wifi_start();
     if (result != ESP_OK) return result;
+    xSemaphoreTake(curio_app.mutex, portMAX_DELAY);
+    curio_app.network_error[0] = 0;
+    strcpy(curio_app.setup_ssid, (char *)ap.ap.ssid);
+    strcpy(curio_app.setup_password, (char *)ap.ap.password);
+    xSemaphoreGive(curio_app.mutex);
+    return ESP_OK;
+}
+
+static esp_err_t start_setup_server(void)
+{
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     ESP_ERROR_CHECK(esp_netif_get_netif_impl_name(setup_interface, setup_interface_name.ifr_name));
     config.if_name = &setup_interface_name;
-    config.ctrl_port = 32769;
     config.max_open_sockets = 2;
     config.lru_purge_enable = true;
     config.stack_size = 12288;
-    config.max_uri_handlers = 8;
-    result = httpd_start(&setup_server, &config);
+    config.max_uri_handlers = 9;
+    esp_err_t result = httpd_start(&setup_server, &config);
     if (result != ESP_OK) return result;
     const httpd_uri_t routes[] = {
         {.uri = "/", .method = HTTP_GET, .handler = web_handler},
@@ -370,6 +389,7 @@ static esp_err_t start_setup(void)
         {.uri = "/api/v2/setup", .method = HTTP_GET, .handler = config_handler},
         {.uri = "/api/v2/setup", .method = HTTP_PUT, .handler = config_handler},
         {.uri = "/api/v2/setup/restart", .method = HTTP_POST, .handler = restart_handler},
+        {.uri = "/api/v2/setup/reset", .method = HTTP_POST, .handler = reset_handler},
     };
     for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); i++) {
         result = httpd_register_uri_handler(setup_server, &routes[i]);
@@ -377,10 +397,8 @@ static esp_err_t start_setup(void)
     }
     xSemaphoreTake(curio_app.mutex, portMAX_DELAY);
     curio_app.setup_active = true;
-    curio_app.network_error[0] = 0;
-    strcpy(curio_app.setup_ssid, (char *)ap.ap.ssid);
-    strcpy(curio_app.setup_password, (char *)ap.ap.password);
     xSemaphoreGive(curio_app.mutex);
+    ESP_LOGI(TAG, "Setup AP ready");
     return ESP_OK;
 }
 
@@ -403,22 +421,28 @@ static void network_event(void *arg, esp_event_base_t base, int32_t id, void *da
         snprintf(curio_app.ip, sizeof(curio_app.ip), IPSTR, IP2STR(&event->ip_info.ip));
         xSemaphoreGive(curio_app.mutex);
         xTaskNotify(network_task_handle, NETWORK_CONNECTED, eSetBits);
-    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+    } else if (base == WIFI_EVENT && (id == WIFI_EVENT_STA_DISCONNECTED || id == WIFI_EVENT_STA_STOP)) {
         xSemaphoreTake(curio_app.mutex, portMAX_DELAY);
         curio_app.wifi_connected = false;
         curio_app.ip[0] = 0;
         xSemaphoreGive(curio_app.mutex);
         xTaskNotify(network_task_handle, NETWORK_DISCONNECTED, eSetBits);
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_AP_START) {
+        xTaskNotify(network_task_handle, NETWORK_SETUP_READY, eSetBits);
     }
 }
 
 static void network_task(void *arg)
 {
-    curio_tls_config_t *tls = curio_app.configured ? curio_alloc(sizeof(*tls)) : NULL;
-    configASSERT(!curio_app.configured || tls);
     curio_network_config_t network;
     xSemaphoreTake(curio_app.mutex, portMAX_DELAY);
     network = curio_app.network;
+    bool configured = curio_app.configured;
+    xSemaphoreGive(curio_app.mutex);
+    bool shared_trial = curio_app.import_shared_wifi && curio_wifi_load_shared(&network);
+    curio_tls_config_t *tls = configured || shared_trial ? curio_alloc(sizeof(*tls)) : NULL;
+    configASSERT(!(configured || shared_trial) || tls);
+    xSemaphoreTake(curio_app.mutex, portMAX_DELAY);
     if (tls) *tls = curio_app.tls;
     xSemaphoreGive(curio_app.mutex);
     ESP_ERROR_CHECK(esp_netif_init());
@@ -432,13 +456,8 @@ static void network_task(void *arg)
     ESP_ERROR_CHECK(esp_wifi_init(&wifi));
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, network_event, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, network_event, NULL));
-    wifi_config_t station = {0};
-    memcpy(station.sta.ssid, network.ssid, strlen(network.ssid));
-    memcpy(station.sta.password, network.password, strlen(network.password));
-    station.sta.pmf_cfg.capable = true;
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &station));
     ESP_ERROR_CHECK(mdns_init());
     ESP_ERROR_CHECK(mdns_hostname_set(network.hostname));
     ESP_ERROR_CHECK(mdns_instance_name_set("Curio status display"));
@@ -446,17 +465,22 @@ static void network_task(void *arg)
     const esp_iris_mdns_config_t iris_discovery = {.instance_prefix = "Curio", .mode = "normal"};
     ESP_ERROR_CHECK(esp_iris_mdns_register(&iris_discovery));
     ESP_ERROR_CHECK(esp_wifi_start());
-    if (curio_app.configured) ESP_ERROR_CHECK(esp_wifi_connect());
-    else xTaskNotify(network_task_handle, NETWORK_SETUP_CHANGED, eSetBits);
+    curio_wifi_t connection = {0};
+    uint64_t service_revision = UINT64_MAX;
+    if (!configured && !shared_trial) curio_network_setup(true);
     for (;;) {
         uint32_t events = 0;
         xTaskNotifyWait(0, UINT32_MAX, &events, pdMS_TO_TICKS(1000));
-        if (events & NETWORK_SETUP_CHANGED) {
+        if (events & (NETWORK_SETUP_CHANGED | NETWORK_SETUP_READY)) {
             if (!atomic_load(&setup_requested)) stop_setup();
             else if (!setup_server) {
-                esp_err_t result = start_setup();
+                esp_err_t result = ESP_OK;
+                if (events & NETWORK_SETUP_CHANGED) result = start_setup();
+                else if (esp_netif_is_netif_up(setup_interface)) result = start_setup_server();
                 if (result != ESP_OK) {
+                    atomic_store(&setup_requested, false);
                     stop_setup();
+                    ESP_LOGE(TAG, "Setup failed: %s", esp_err_to_name(result));
                     xSemaphoreTake(curio_app.mutex, portMAX_DELAY);
                     snprintf(curio_app.network_error, sizeof(curio_app.network_error), "Setup: %s", esp_err_to_name(result));
                     xSemaphoreGive(curio_app.mutex);
@@ -469,9 +493,41 @@ static void network_task(void *arg)
         char ntp_server[128];
         strcpy(ntp_server, curio_app.device.ntp_server);
         clock_enabled = (curio_layout_services(&curio_app.layout) & CURIO_SERVICE_TIME) != 0;
+        if (service_revision != curio_app.layout.revision) {
+            for (size_t i = 0; i < curio_widget_service_count; i++)
+                curio_widget_services[i]->configure(&curio_app.layout);
+            service_revision = curio_app.layout.revision;
+        }
         xSemaphoreGive(curio_app.mutex);
+        if (shared_trial && atomic_load(&setup_requested)) {
+            shared_trial = false;
+            network.wifi_count = 0;
+            esp_wifi_disconnect();
+        }
+        curio_wifi_update(&connection, &network, curio_now_ms(), connected, events & NETWORK_DISCONNECTED);
+        if (shared_trial && connection.phase == CURIO_WIFI_ONLINE) {
+            esp_err_t result = curio_settings_adopt_wifi(&network);
+            if (result == ESP_OK) {
+                xSemaphoreTake(curio_app.mutex, portMAX_DELAY);
+                *tls = curio_app.tls;
+                curio_app.configured = true;
+                xSemaphoreGive(curio_app.mutex);
+                shared_trial = false;
+                configured = true;
+            } else {
+                ESP_LOGE(TAG, "Shared Wi-Fi save failed: %s", esp_err_to_name(result));
+                connection.phase = CURIO_WIFI_WAIT;
+            }
+        }
+        if (shared_trial && connection.phase != CURIO_WIFI_CONNECTING && !configured) {
+            shared_trial = false;
+            network.wifi_count = 0;
+            esp_wifi_disconnect();
+            curio_network_setup(true);
+        }
+        if (!configured && !shared_trial) { free(tls); tls = NULL; }
         curio_clock_update(clock_enabled, connected, events & NETWORK_CONNECTED, ntp_server);
-        if (connected && !server && tls) {
+        if (configured && connected && !server && tls) {
             esp_err_t result = start_server(tls);
             if (result == ESP_OK) { free(tls); tls = NULL; }
             xSemaphoreTake(curio_app.mutex, portMAX_DELAY);
@@ -481,16 +537,14 @@ static void network_task(void *arg)
                 ESP_LOGE(TAG, "HTTPS start failed: %s", esp_err_to_name(result));
             }
         }
-        if (curio_app.configured && (events & NETWORK_DISCONNECTED)) {
-            vTaskDelay(pdMS_TO_TICKS(2000));
-            esp_wifi_connect();
-        }
+        for (size_t i = 0; i < curio_widget_service_count; i++)
+            curio_widget_services[i]->poll(curio_now_ms(), connected);
     }
 }
 
 void curio_network_start(void)
 {
-    atomic_store(&setup_requested, !curio_app.configured);
+    atomic_store(&setup_requested, false);
     BaseType_t result = xTaskCreate(network_task, "curio_network", 6144, NULL, 5, &network_task_handle);
     configASSERT(result == pdPASS);
 }

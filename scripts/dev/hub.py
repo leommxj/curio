@@ -33,6 +33,7 @@ def build_library():
     sources = [*modules['portable'], ROOT / 'scripts/dev/bridge.c', CORE / 'curio_core.c', LAYOUT / 'curio_layout.c', ALERTS / 'curio_alerts.c', CONFIG / 'curio_config.c', *sorted((YAML / 'src').glob('*.c')), ROOT / '.deps/cJSON/cJSON.c']
     includes = [ROOT / 'firmware/modules/include', CORE / 'include', LAYOUT / 'include', ALERTS / 'include', CONFIG / 'include', YAML / 'include', YAML / 'src', ROOT / '.deps/cJSON']
     inputs = sources + [header for directory in includes for header in directory.glob('*.h')]
+    inputs += list((ROOT / 'firmware/modules').rglob('*.h'))
     if not destination.exists() or any(p.stat().st_mtime > destination.stat().st_mtime for p in inputs):
         destination.parent.mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(prefix='curio-dev-', dir=destination.parent) as directory:

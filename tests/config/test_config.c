@@ -24,7 +24,7 @@ static void test_defaults(void)
     char error[80];
     assert(curio_config_parse(minimal, strlen(minimal), &config, error, sizeof(error)) && !*error);
     assert(config.device.brightness == 75 && config.device.rotation == 0 && !config.device.auto_rotate);
-    assert(!*config.network.ssid && !*config.network.password && !strcmp(config.network.hostname, "curio"));
+    assert(!config.network.wifi_count && !strcmp(config.network.hostname, "curio"));
     assert(!*config.tls.certificate && !*config.tls.private_key);
     assert(config.display.page_count == 1 && !strcmp(config.display.default_page, "home"));
     curio_widget_config_t *w = &config.display.pages[0].widgets[0];
@@ -117,7 +117,7 @@ static void test_invalid(void)
 static void test_network_tls(void)
 {
     const char *yaml =
-        "network: {ssid: '工作室 WiFi', password: 'password123', hostname: curio-desk}\n"
+        "network: {hostname: curio-desk, wifi: [{ssid: '工作室 WiFi', password: 'password123'}, {ssid: Guest}]}\n"
         "tls:\n"
         "  certificate: |\n"
         "    -----BEGIN CERTIFICATE-----\n"
@@ -133,14 +133,17 @@ static void test_network_tls(void)
     strcpy(input, minimal);
     strcat(input, yaml);
     assert(curio_config_parse(input, strlen(input), &config, NULL, 0));
-    assert(!strcmp(config.network.ssid, "工作室 WiFi") && !strcmp(config.network.password, "password123"));
+    assert(config.network.wifi_count == 2 && !strcmp(config.network.wifi[0].ssid, "工作室 WiFi") &&
+           !strcmp(config.network.wifi[0].password, "password123") &&
+           !strcmp(config.network.wifi[1].ssid, "Guest") && !*config.network.wifi[1].password);
     assert(!strcmp(config.network.hostname, "curio-desk"));
     assert(strstr(config.tls.certificate, "example-certificate\n"));
     curio_config_t *before = calloc(1, sizeof(*before));
     assert(before);
     assert(curio_config_clone(before, &config));
     char *out = curio_config_yaml(&config);
-    assert(out && strstr(out, "certificate: |") && strstr(out, "private_key: |"));
+    assert(out && strstr(out, "certificate: |") && strstr(out, "private_key: |") &&
+           strstr(out, "wifi:\n") && strstr(out, "ssid: Guest"));
     assert(curio_config_parse(out, strlen(out), &config, NULL, 0));
     assert(curio_config_equal(before, &config));
     cJSON_free(out);
@@ -149,8 +152,16 @@ static void test_network_tls(void)
     free(input);
 
     const char *invalid[] = {
-        "network: null\n", "network: {ssid: true}\n", "network: {ssid: 123}\n",
-        "network: {ssid: abc, password: short}\n", "network: {hostname: ''}\n",
+        "network: null\n", "network: {ssid: old}\n", "network: {wifi: null}\n",
+        "network: {wifi: bad}\n", "network: {wifi: [null]}\n",
+        "network: {wifi: [{}]}\n", "network: {wifi: [{ssid: ''}]}\n",
+        "network: {wifi: [{ssid: true}]}\n", "network: {wifi: [{ssid: 123}]}\n",
+        "network: {wifi: [{ssid: abc, password: short}]}\n",
+        "network: {wifi: [{ssid: abc, password: true}]}\n",
+        "network: {wifi: [{ssid: abc, extra: x}]}\n",
+        "network: {wifi: [{ssid: abc}, {ssid: abc}]}\n",
+        "network: {wifi: [{ssid: a}, {ssid: b}, {ssid: c}, {ssid: d}, {ssid: e}]}\n",
+        "network: {hostname: ''}\n",
         "network: {hostname: -curio}\n", "network: {hostname: curio-}\n",
         "network: {hostname: curio.local}\n", "network: {hostname: curio_name}\n",
         "network: {extra: value}\n", "tls: null\n", "tls: {}\n",
@@ -161,29 +172,56 @@ static void test_network_tls(void)
     };
     for (size_t i = 0; i < sizeof(invalid) / sizeof(*invalid); i++) reject(invalid[i]);
 
+    char *empty = malloc(strlen(minimal) + 32);
+    assert(empty);
+    strcpy(empty, minimal);
+    strcat(empty, "network: {wifi: []}\n");
+    assert(curio_config_parse(empty, strlen(empty), &config, NULL, 0));
+    assert(config.network.wifi_count == 0);
+    free(empty);
+
+    const char *four = "network: {wifi: [{ssid: one}, {ssid: two}, {ssid: three}, {ssid: four}]}\n";
+    input = malloc(strlen(minimal) + strlen(four) + 1);
+    assert(input);
+    strcpy(input, minimal); strcat(input, four);
+    assert(curio_config_parse(input, strlen(input), &config, NULL, 0));
+    assert(config.network.wifi_count == CURIO_WIFI_MAX_NETWORKS);
+    free(input);
+
     char suffix[2300];
     char value[2100];
     memset(value, 'a', sizeof(value));
     value[32] = 0;
-    snprintf(suffix, sizeof(suffix), "network: {ssid: '%s'}\n", value);
+    snprintf(suffix, sizeof(suffix), "network: {wifi: [{ssid: '%s'}]}\n", value);
     n = strlen(minimal) + strlen(suffix) + 1;
     input = malloc(n); assert(input);
     strcpy(input, minimal); strcat(input, suffix);
     assert(curio_config_parse(input, strlen(input), &config, NULL, 0));
     free(input);
     value[32] = 'a'; value[33] = 0;
-    snprintf(suffix, sizeof(suffix), "network: {ssid: '%s'}\n", value);
+    snprintf(suffix, sizeof(suffix), "network: {wifi: [{ssid: '%s'}]}\n", value);
     reject(suffix);
     memset(value, 'a', sizeof(value));
     value[63] = 0;
-    snprintf(suffix, sizeof(suffix), "network: {ssid: radio, password: '%s'}\n", value);
+    snprintf(suffix, sizeof(suffix), "network: {wifi: [{ssid: radio, password: '%s'}]}\n", value);
     n = strlen(minimal) + strlen(suffix) + 1;
     input = malloc(n); assert(input);
     strcpy(input, minimal); strcat(input, suffix);
     assert(curio_config_parse(input, strlen(input), &config, NULL, 0));
     free(input);
     value[63] = 'a'; value[64] = 0;
-    snprintf(suffix, sizeof(suffix), "network: {ssid: radio, password: '%s'}\n", value);
+    snprintf(suffix, sizeof(suffix), "network: {wifi: [{ssid: radio, password: '%s'}]}\n", value);
+    n = strlen(minimal) + strlen(suffix) + 1;
+    input = malloc(n); assert(input);
+    strcpy(input, minimal); strcat(input, suffix);
+    assert(curio_config_parse(input, strlen(input), &config, NULL, 0));
+    assert(!strcmp(config.network.wifi[0].password, value));
+    free(input);
+    value[0] = 'g';
+    snprintf(suffix, sizeof(suffix), "network: {wifi: [{ssid: radio, password: '%s'}]}\n", value);
+    reject(suffix);
+    value[0] = 'a'; value[64] = 'a'; value[65] = 0;
+    snprintf(suffix, sizeof(suffix), "network: {wifi: [{ssid: radio, password: '%s'}]}\n", value);
     reject(suffix);
     memset(value, 'a', sizeof(value)); value[2048] = 0;
     snprintf(suffix, sizeof(suffix), "tls: {certificate: '%s', private_key: key}\n", value);

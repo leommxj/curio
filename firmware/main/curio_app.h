@@ -22,11 +22,12 @@ typedef struct {
     curio_orientation_status_t orientation;
     SemaphoreHandle_t mutex;
     bool configured;
+    bool import_shared_wifi;
     bool wifi_connected;
     bool https_ready;
     bool setup_active;
     char setup_ssid[24];
-    char setup_password[17];
+    char setup_password[9];
     char ip[16];
     char network_error[64];
 } curio_app_t;

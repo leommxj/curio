@@ -1,0 +1,122 @@
+[
+  {
+    "name": "city",
+    "options": {
+      "city": "北京",
+      "latitude": 39.9,
+      "longitude": 116.4
+    },
+    "valid": true,
+    "expected": {
+      "city": "北京",
+      "latitude": 39.9,
+      "longitude": 116.4
+    }
+  },
+  {
+    "name": "missing city",
+    "options": {
+      "latitude": 39.9,
+      "longitude": 116.4
+    },
+    "valid": false
+  },
+  {
+    "name": "missing latitude",
+    "options": {
+      "city": "北京",
+      "longitude": 116.4
+    },
+    "valid": false
+  },
+  {
+    "name": "missing longitude",
+    "options": {
+      "city": "北京",
+      "latitude": 39.9
+    },
+    "valid": false
+  },
+  {
+    "name": "empty city",
+    "options": {
+      "city": "",
+      "latitude": 39.9,
+      "longitude": 116.4
+    },
+    "valid": false
+  },
+  {
+    "name": "UTF-8 boundary",
+    "options": {
+      "city": "京京京京京京京京京京京京京京京京京京京京京a",
+      "latitude": 39.9,
+      "longitude": 116.4
+    },
+    "valid": true
+  },
+  {
+    "name": "UTF-8 overflow",
+    "options": {
+      "city": "京京京京京京京京京京京京京京京京京京京京京京",
+      "latitude": 39.9,
+      "longitude": 116.4
+    },
+    "valid": false
+  },
+  {
+    "name": "south west",
+    "options": {
+      "city": "北京",
+      "latitude": -90,
+      "longitude": -180
+    },
+    "valid": true
+  },
+  {
+    "name": "north east",
+    "options": {
+      "city": "北京",
+      "latitude": 90,
+      "longitude": 180
+    },
+    "valid": true
+  },
+  {
+    "name": "latitude overflow",
+    "options": {
+      "city": "北京",
+      "latitude": 90.1,
+      "longitude": 116.4
+    },
+    "valid": false
+  },
+  {
+    "name": "longitude overflow",
+    "options": {
+      "city": "北京",
+      "latitude": 39.9,
+      "longitude": -180.1
+    },
+    "valid": false
+  },
+  {
+    "name": "coordinate string",
+    "options": {
+      "city": "北京",
+      "latitude": "39.9",
+      "longitude": 116.4
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown field",
+    "options": {
+      "city": "北京",
+      "latitude": 39.9,
+      "longitude": 116.4,
+      "host": "x"
+    },
+    "valid": false
+  }
+]
