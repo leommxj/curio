@@ -14,17 +14,13 @@ Collector is one executable with built-in modules. Each entry under `sources` co
 | System metrics | `network` | `metrics` | `rx_bytes_per_second`, `tx_bytes_per_second` |
 | Application state | `herdr` | `agents` | Agent IDs, names, brands, projects and states |
 
-OS compatibility is a separate property of each module. The same module names and YAML structure apply on all three platforms.
+System metrics use gopsutil's implementations for Linux, Windows and macOS. Module names and YAML fields are the same across platforms. The herdr module requires a running herdr instance on the machine:
 
-| Module | Linux | Windows | macOS |
-| --- | --- | --- | --- |
-| `cpu` | Native sampling verified | Native sampling verified on Windows 10 | gopsutil implementation; native sampling unverified |
-| `memory` | Native sampling verified | Native sampling verified on Windows 10 | gopsutil implementation; native sampling unverified |
-| `disk` | Native sampling verified | Native sampling verified on Windows 10 | gopsutil implementation; native sampling unverified |
-| `network` | Native sampling verified | Native sampling verified on Windows 10 | gopsutil implementation has known limitations; native sampling unverified |
-| `herdr` | Unix socket by default; CLI optional | CLI by default; native integration unverified | Unix socket by default; CLI optional; native integration unverified |
-
-System metrics use gopsutil's OS-specific implementations. The herdr module requires a running herdr instance and a working socket or CLI on that machine. It reads agent state through herdr; it does not query Codex or Pi directly. Cross-compilation does not verify native collection.
+| Platform | herdr transport | Service deployment |
+| --- | --- | --- |
+| Linux | Unix socket by default; CLI optional | systemd |
+| Windows | CLI | Windows service |
+| macOS | Unix socket by default; CLI optional | Manual launchd setup |
 
 `init`, `check`, `export` and `run` are shared commands on Linux, Windows and macOS. Service deployment supports Linux systemd and Windows services; see [Services](#services).
 
@@ -95,7 +91,7 @@ Run `make collector-windows` on a machine with Go and Make in a POSIX shell. Cop
 - **Edit configuration** opens the YAML used by the installed service in Notepad, or `%AppData%\curio\collector.yaml` when no service is installed. The path is read again on each operation.
 - **Service** offers Install, Manage and Uninstall. Install also upgrades an existing service. These operations request administrator access. Manage opens Windows Services to start, stop or restart **Curio Collector**.
 
-Running the EXE without arguments opens the window, including from a terminal. Use `curio-collector.exe check` to validate configuration and `curio-collector.exe run` for foreground collection. Stop with Ctrl+C and restart after editing configuration. The window, service installation, upgrade, recovery and removal have been tested on Windows 10. System reboot and herdr integration remain unverified.
+Running the EXE without arguments opens the window, including from a terminal. Use `curio-collector.exe check` to validate configuration and `curio-collector.exe run` for foreground collection. Stop with Ctrl+C and restart after editing configuration.
 
 ## Source configuration
 
@@ -158,7 +154,7 @@ Prepare YAML, the token and the certificate, then select **Service → Install**
 
 The default account is the low-privilege `LocalService`. Installation grants the service's configured account read access to the YAML, token, CA and identity files. It does not grant access to any other files. If file references or the service account change, install again to grant the required access. Service errors go to **Event Viewer → Windows Logs → Application**, source `curio-collector`.
 
-LocalService has its own profile, PATH and login session. User-specific herdr installations, sessions and mapped drives are not inherited. For herdr, set an absolute `binary` in its source and, when needed, a `session`. Select the appropriate account in the service's **Log On** properties. Using the same account does not guarantee access to an interactive herdr session: check that its source reports `ok` in the Hub after restarting the service. `collector check` validates configuration, not herdr access; foreground collection uses the current user's environment. Windows herdr integration under a service account remains unverified.
+LocalService has its own profile, PATH and login session. User-specific herdr installations, sessions and mapped drives are not inherited. For herdr, set an absolute `binary` in its source and, when needed, a `session`. Select the appropriate account in the service's **Log On** properties. Using the same account does not guarantee access to an interactive herdr session: check that its source reports `ok` in the Hub after restarting the service. `collector check` validates configuration, not herdr access; foreground collection uses the current user's environment.
 
 SCM restarts the service after abnormal exits, including a reported failure: after 5 seconds for the first failure and 30 seconds for the second, then no further retries. The failure count resets after 60 seconds without another failure. A normal stop does not restart it. An unreachable Hub or failed source does not stop the process; Collector continues its normal retry loop.
 

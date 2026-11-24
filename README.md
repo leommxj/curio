@@ -36,7 +36,7 @@ The included `curio-collector` has five built-in modules. Each machine selects i
 
 The [snapshot protocol](docs/protocol.md) also accepts custom reporters that publish metrics, status text or agent lists. Each source declares its data lifetime independently of host connectivity. Numeric widgets format capacities, rates and common units automatically.
 
-OS compatibility is listed per module in the [Collector guide](docs/collector.md#supported-modules-and-platforms). System metrics have been verified on Linux and Windows 10; macOS collection and Windows herdr integration remain unverified. Service installation supports Linux systemd and Windows services.
+OS compatibility is listed per module in the [Collector guide](docs/collector.md#supported-modules-and-platforms). Service installation supports Linux systemd and Windows services.
 
 `make collector-windows` builds `build/windows/curio-collector.exe` for Windows amd64. Double-click it for setup, or use `curio-collector.exe run` for foreground collection. See [Windows setup](docs/collector.md#windows-setup).
 
@@ -71,12 +71,13 @@ Run `make help` for build, flash, service and test commands. `make test` runs th
 
 ### Limits and development
 
-The Hub accepts four hosts, eight sources per host, and a total of 32 metrics and 16 agents per host. It supports four screen pages with eight widgets each. The device font is ASCII; other characters display as `?`. The web interface retains Unicode. Weather, historical charts and agent control are not implemented.
+The Hub accepts four hosts, eight sources per host, and a total of 32 metrics and 16 agents per host. It supports four screen pages with eight widgets each. The device font is ASCII; other characters display as `?`. The web interface retains Unicode.
 
 | Path | Contents |
 | --- | --- |
 | `collector/` | Collection modules, local configuration, Windows setup window and HTTPS reporting |
 | `firmware/components/` | Portable C state, YAML, layout and alert models; dependency adapters |
+| `firmware/modules/` | Widget and alert implementations, web editors, tests and registry |
 | `firmware/main/` | ESP-IDF networking, persistence, sensors, outputs, LVGL interface and web assets |
 | `Makefile` | Build, flash, install and test commands |
 | `scripts/firmware/` | Firmware configuration, build and official device-tool adapter |
@@ -84,7 +85,11 @@ The Hub accepts four hosts, eight sources per host, and a total of 32 metrics an
 | `scripts/dev/` | Local development Hub and C bridge |
 | `tests/` | Host, browser and integration tests |
 
-See the [protocol](docs/protocol.md), [device controls](docs/firmware.md#runtime-and-controls) and [tests](tests/README.md). Dependencies are pinned in `dependencies.json`, `firmware/dependencies.lock` and `collector/go.sum`. Build output, credentials and local tool state are excluded from Git.
+See the [protocol](docs/protocol.md), [module interfaces](docs/modules.md), [device controls](docs/firmware.md#runtime-and-controls) and [tests](tests/README.md). Dependencies are pinned in `dependencies.json`, `firmware/dependencies.lock` and `collector/go.sum`. Build output, credentials and local tool state are excluded from Git.
+
+### License
+
+[WTFPL v2](LICENSE). Third-party dependencies retain their own licenses.
 
 ## 中文
 
@@ -114,7 +119,7 @@ Collector 上报机器和应用状态。开发板自行读取时钟和传感器�
 
 [快照协议](docs/protocol.md)也允许自定义采集器上报数值指标、状态文本或 Agent 列表。每个来源可设置数据有效期，与主机在线状态独立判断。数值组件自动格式化容量、速率和常见单位。
 
-操作系统兼容性按模块列在 [Collector 文档](docs/collector.md#supported-modules-and-platforms)中。系统指标已在 Linux 和 Windows 10 验证；macOS 采集和 Windows herdr 集成仍待验证。服务安装支持 Linux systemd 和 Windows 服务。
+操作系统兼容性按模块列在 [Collector 文档](docs/collector.md#supported-modules-and-platforms)中。服务安装支持 Linux systemd 和 Windows 服务。
 
 `make collector-windows` 生成 Windows amd64 程序 `build/windows/curio-collector.exe`。双击打开配置窗口，或执行 `curio-collector.exe run` 在前台采集。参见 [Windows 配置](docs/collector.md#windows-setup)。
 
@@ -149,8 +154,12 @@ make collector
 
 ### 限制与开发
 
-Hub 最多接收四台主机，每机八个来源、合计 32 个指标和 16 个 Agent；最多四个展示页，每页八个组件。设备字体仅支持 ASCII，其他字符显示为 `?`，网页保留 Unicode。尚未实现天气、历史曲线和 Agent 控制。
+Hub 最多接收四台主机，每机八个来源、合计 32 个指标和 16 个 Agent；最多四个展示页，每页八个组件。设备字体仅支持 ASCII，其他字符显示为 `?`，网页保留 Unicode。
 
-`Makefile` 统一命令入口。`collector/` 负责采集和上报；`firmware/components/` 存放可在主机测试的状态、YAML、布局和提醒模型；`firmware/main/` 接入 ESP-IDF、设备驱动、LVGL 和网页。`scripts/` 按 `firmware`、`collector`、`dev` 分组存放构建、部署和开发脚本，`tests/` 存放测试。详细说明见[协议](docs/protocol.md)和[设备操作](docs/firmware.md#runtime-and-controls)。
+`Makefile` 统一命令入口。`collector/` 负责采集和上报；`firmware/components/` 存放可在主机测试的状态、YAML、布局和提醒模型；`firmware/modules/` 按类型存放 widget 和 alert 的实现、网页编辑器及测试；`firmware/main/` 接入 ESP-IDF、设备驱动、LVGL 和网页。`scripts/` 按 `firmware`、`collector`、`dev` 分组存放构建、部署和开发脚本，`tests/` 存放测试。详细说明见[协议](docs/protocol.md)、[模块接口](docs/modules.md)和[设备操作](docs/firmware.md#runtime-and-controls)。
 
 依赖由 `dependencies.json`、`firmware/dependencies.lock` 和 `collector/go.sum` 固定。构建产物、凭证和本地运行数据不纳入 Git。
+
+### 许可证
+
+[WTFPL v2](LICENSE)。第三方依赖保留各自的许可证。

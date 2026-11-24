@@ -1,4 +1,5 @@
 #include "curio_alerts.h"
+#include "cJSON.h"
 
 #include <assert.h>
 #include <math.h>
@@ -13,83 +14,54 @@ static void *test_alloc(size_t size)
 
 static curio_alert_config_t config(void)
 {
+    static const char *json[] = {
+        "{\"host\":\"*\",\"source\":\"custom.agents\",\"include_idle\":true}",
+        "{\"host\":\"host\",\"source\":\"system.memory\",\"key\":\"usage_pct\",\"unit\":\"percent\",\"threshold\":90,\"recover\":85,\"hold\":5}",
+        "{\"host\":\"*\",\"hold\":5}"
+    };
+    const char *types[] = {"agent_done","metric_high","host_offline"};
+    const char *ids[] = {"agent","metric","offline"};
     curio_alert_config_t c;
     curio_alert_config_default(&c);
     c.rule_count = 3;
-    curio_alert_rule_t *r = &c.rules[0];
-    strcpy(r->id, "agent");
-    r->enabled = true;
-    r->type = CURIO_ALERT_AGENT_DONE;
-    strcpy(r->host_id, "*");
-    strcpy(r->source_id, "herdr");
-    r->include_idle = true;
-    r->vibrate = true;
-    r->flash = true;
-    r->display_s = 8;
-    r = &c.rules[1];
-    strcpy(r->id, "metric");
-    r->enabled = true;
-    r->type = CURIO_ALERT_METRIC_HIGH;
-    strcpy(r->host_id, "host");
-    strcpy(r->source_id, "system.memory");
-    strcpy(r->key, "usage_pct");
-    strcpy(r->unit, "percent");
-    r->threshold = 90;
-    r->recover = 85;
-    r->hold_s = 5;
-    r->display_s = 8;
-    r = &c.rules[2];
-    strcpy(r->id, "offline");
-    r->enabled = true;
-    r->type = CURIO_ALERT_HOST_OFFLINE;
-    strcpy(r->host_id, "*");
-    r->hold_s = 5;
-    r->display_s = 8;
+    for (size_t i = 0; i < c.rule_count; i++) {
+        curio_alert_rule_t *r = &c.rules[i];
+        strcpy(r->id,ids[i]);
+        r->enabled = true;
+        r->display_s = 8;
+        r->type = curio_alert_type_find(types[i]);
+        assert(r->type);
+        r->options = cJSON_malloc(r->type->options_size);
+        cJSON *value = cJSON_Parse(json[i]);
+        assert(value && r->options && r->type->parse(value,r->options));
+        cJSON_Delete(value);
+    }
+    c.rules[0].vibrate = c.rules[0].flash = true;
     return c;
 }
 
 static void test_config(void)
 {
-    curio_alert_config_t c;
-    curio_alert_config_default(&c);
+    curio_alert_config_t c = config(), copy = {0};
     assert(curio_alert_config_validate(&c));
-    assert(c.rule_count == 0 && c.volume == 35 && c.vibration_strength == 60);
-    c = config();
-    assert(curio_alert_config_validate(&c));
-    c.rules[0].display_s = 0;
-    assert(curio_alert_config_validate(&c));
-    c.rules[0].display_s = 301;
-    assert(!curio_alert_config_validate(&c));
-    c = config();
-    c.rules[1].recover = c.rules[1].threshold;
-    assert(!curio_alert_config_validate(&c));
-    c = config();
-    c.rules[1].threshold = NAN;
-    assert(!curio_alert_config_validate(&c));
-    c = config();
-    c.rules[2].hold_s = 4;
-    assert(!curio_alert_config_validate(&c));
-    c = config();
-    c.rules[1].hold_s = 0;
-    assert(!curio_alert_config_validate(&c));
-    c = config();
-    strcpy(c.rules[1].host_id, "*");
-    assert(!curio_alert_config_validate(&c));
-    c = config();
-    strcpy(c.rules[0].source_id, "other");
-    assert(!curio_alert_config_validate(&c));
-    c = config();
-    strcpy(c.rules[2].id, c.rules[0].id);
-    assert(!curio_alert_config_validate(&c));
-    c = config();
-    c.vibration_strength = 101;
-    assert(!curio_alert_config_validate(&c));
-    c = config();
-    c.volume = 101;
-    assert(!curio_alert_config_validate(&c));
-    c = config();
-    c.rule_count = CURIO_ALERT_MAX_RULES + 1;
-    assert(!curio_alert_config_validate(&c));
+    assert(curio_alert_config_clone(&copy,&c));
+    assert(curio_alert_config_equal(&c,&copy));
+    assert(c.rules[0].options != copy.rules[0].options);
+    copy.volume = 10;
+    assert(curio_alert_rules_equal(&c,&copy) && !curio_alert_config_equal(&c,&copy));
+    copy.rules[0].display_s = 301;
+    assert(!curio_alert_config_validate(&copy));
+    const curio_alert_type_t *type = curio_alert_type_find("agent_done");
+    void *defaults = cJSON_malloc(type->options_size);
+    cJSON *json = cJSON_Parse("{}"), *written = cJSON_CreateObject();
+    assert(defaults && json && written && type->parse(json,defaults));
+    assert(type->write(written,defaults));
+    assert(!cJSON_GetObjectItemCaseSensitive(written,"include_idle"));
+    cJSON_Delete(json);
+    cJSON_Delete(written);
+    cJSON_free(defaults);
+    curio_alert_config_free(&copy);
+    curio_alert_config_free(&c);
     assert(!curio_alert_config_validate(NULL));
 }
 
@@ -100,11 +72,13 @@ static void test_runtime(void)
     curio_alerts_t *a = curio_alerts_create((curio_allocator_t){test_alloc, free});
     assert(a && curio_alerts_configure(a, &c));
     assert(curio_alerts_revision(a) == 7 && curio_alerts_revision(NULL) == 0);
+    c.rules[0].display_s++;
     fail_alloc = 1;
     assert(!curio_alerts_configure(a, &c));
     fail_alloc = 2;
     assert(!curio_alerts_configure(a, &c));
     fail_alloc = 0;
+    c.rules[0].display_s--;
 
     curio_agent_t agent = {0};
     strcpy(agent.id, "one");
@@ -119,7 +93,7 @@ static void test_runtime(void)
     metric.value = 80;
     curio_source_t source[2] = {0};
     source[0].max_age_ms = source[1].max_age_ms = CURIO_STALE_MS;
-    strcpy(source[0].id, "herdr");
+    strcpy(source[0].id, "custom.agents");
     source[0].kind = CURIO_SOURCE_AGENTS;
     source[0].status = CURIO_SOURCE_OK;
     source[0].has_success = true;
@@ -257,11 +231,13 @@ static void test_runtime(void)
     assert(curio_alerts_remaining_ms(a, 160000) == 0);
     assert(curio_alerts_current(a, 900000));
     curio_alerts_destroy(a);
+    curio_alert_config_free(&c);
 }
 
 static void test_agent_replacement(void)
 {
     curio_alert_config_t c = config();
+    for (size_t i = 1; i < c.rule_count; i++) cJSON_free(c.rules[i].options);
     c.rule_count = 1;
     curio_alerts_t *a = curio_alerts_create((curio_allocator_t){malloc, free});
     assert(a && curio_alerts_configure(a, &c));
@@ -273,7 +249,7 @@ static void test_agent_replacement(void)
     }
     curio_source_t source = {.kind = CURIO_SOURCE_AGENTS, .status = CURIO_SOURCE_OK,
         .has_success = true, .max_age_ms = CURIO_STALE_MS, .agents = agents, .agent_count = CURIO_MAX_AGENTS};
-    strcpy(source.id, "herdr");
+    strcpy(source.id, "custom.agents");
     curio_core_t core = {0};
     core.hosts[0].occupied = true;
     strcpy(core.hosts[0].host_id, "host");
@@ -287,11 +263,67 @@ static void test_agent_replacement(void)
     const curio_alert_notification_t *n = curio_alerts_current(a, 2);
     assert(n && !strcmp(n->agent_id, "replacement"));
     curio_alerts_destroy(a);
+    curio_alert_config_free(&c);
 }
+
+static void test_disabled_rules(void)
+{
+    curio_alert_config_t c = config();
+    for (size_t i = 0; i < c.rule_count; i++) c.rules[i].enabled = false;
+    curio_alerts_t *a = curio_alerts_create((curio_allocator_t){test_alloc,free});
+    assert(a);
+    fail_alloc = 1;
+    assert(curio_alerts_configure(a,&c) && fail_alloc == 1);
+    fail_alloc = 0;
+    curio_alerts_destroy(a);
+    curio_alert_config_free(&c);
+}
+
+static void test_queue_recovery(void)
+{
+    curio_alert_config_t c = config();
+    c.rules[0].display_s = 0;
+    curio_alerts_t *a = curio_alerts_create((curio_allocator_t){malloc,free});
+    assert(a && curio_alerts_configure(a,&c));
+    curio_agent_t agents[2] = {{.id="a",.state=CURIO_STATE_WORKING},
+                               {.id="b",.state=CURIO_STATE_WORKING}};
+    curio_metric_t metric = {.key="usage_pct",.unit="percent",.value=95,.has_value=true};
+    curio_source_t sources[2] = {
+        {.id="custom.agents",.kind=CURIO_SOURCE_AGENTS,.status=CURIO_SOURCE_OK,
+         .has_success=true,.max_age_ms=10000,.agents=agents,.agent_count=2},
+        {.id="system.memory",.kind=CURIO_SOURCE_METRICS,.status=CURIO_SOURCE_OK,
+         .has_success=true,.max_age_ms=10000,.metrics=&metric,.metric_count=1}
+    };
+    curio_core_t core = {0};
+    core.hosts[0] = (curio_host_t){.occupied=true,.host_id="host",.sources=sources,.source_count=2};
+    curio_alerts_tick(a,&core,0,true);
+    agents[0].state = agents[1].state = CURIO_STATE_DONE;
+    curio_alerts_tick(a,&core,1,true);
+    assert(curio_alerts_pending(a)==2);
+    uint32_t visible = curio_alerts_current(a,1)->id;
+    curio_alerts_tick(a,&core,5000,true);
+    assert(curio_alerts_pending(a)==3);
+    c.volume = 73;
+    c.revision++;
+    assert(curio_alerts_configure(a,&c));
+    assert(curio_alerts_pending(a)==3 && curio_alerts_current(a,5000)->id==visible);
+    metric.value = 80;
+    curio_alerts_tick(a,&core,5001,true);
+    assert(curio_alerts_pending(a)==2);
+    curio_alerts_dismiss(a,5001);
+    assert(curio_alerts_current(a,5001)->kind==CURIO_ALERT_INFO);
+    curio_alerts_destroy(a);
+    curio_alert_config_free(&c);
+}
+
+void curio_alert_module_tests(void);
 
 int main(void)
 {
+    curio_alert_module_tests();
     test_config();
     test_runtime();
     test_agent_replacement();
+    test_queue_recovery();
+    test_disabled_rules();
 }

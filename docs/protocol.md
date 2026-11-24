@@ -13,7 +13,7 @@ Use HTTPS on port 443 and `Authorization: Bearer <token>`. JSON and YAML use UTF
 | `access.collector_token` | `POST /api/v2/snapshot`, for any host ID |
 | `access.admin_token` | State, catalog, configuration, token management, diagnostics |
 
-Static web assets and `/healthz` are public on the normal HTTPS server. An unconfigured device opens a temporary WPA2 Setup AP with a random password shown on its screen. The AP serves `http://192.168.4.1/setup.html` and the setup API without a separate token. A physical Wi-Fi button in Settings can open or close the AP later; connection failures do not open it. There is no captive portal or DNS redirect. Device credentials live in saved YAML in NVS, not in the firmware image. Full YAML exports contain the Wi-Fi password, both tokens and TLS private key in plaintext; keep them out of Git.
+Static web assets and `/healthz` are public on the normal HTTPS server. An unconfigured device opens a temporary WPA2 Setup AP with a random password shown on its screen. The AP serves `http://192.168.4.1/setup.html` and the setup API without a separate token. A physical Wi-Fi button in Settings can open or close the AP later; connection failures do not open it. Open the setup address manually. Device credentials live in saved YAML in NVS, not in the firmware image. Full YAML exports contain the Wi-Fi password, both tokens and TLS private key in plaintext; keep them out of Git.
 
 ## Snapshots
 
@@ -85,7 +85,7 @@ Collector configuration and source selection are described in [collector.md](col
 
 State and catalog use `{"v":2,"hosts":[...]}`. Hosts contain `host_id`, `host_name`, `health`, and a `sources` object keyed by source ID. Metrics are objects keyed by metric key.
 
-The receiver uses a monotonic clock. A host becomes stale after 10 seconds without a valid report and offline after 30 seconds. Source health is independent: samples older than their `max_age_ms` are stale, and collection failures are immediately unavailable. Updates from other sources do not refresh old samples. Host health measures reporting activity; source status and health describe collection and data freshness. Widgets show `Offline` when the host is offline, even if retained source data has not expired. Alerts also require an online host.
+The receiver uses a monotonic clock. A host becomes stale after 10 seconds without a valid report and offline after 30 seconds. Source health is independent: samples older than their `max_age_ms` are stale, and collection failures are immediately unavailable. Updates from other sources do not refresh old samples. Host health measures reporting activity; source status and health describe collection and data freshness. Widgets show `Offline` when the host is offline, even if retained source data has not expired. Agent and metric alerts require fresh source data and a host that is not offline.
 
 State lives in RAM and is rebuilt after reboot. Hosts offline for more than 5 minutes can be evicted when a new host arrives. Configuration references do not create catalog entries.
 
@@ -183,7 +183,7 @@ Defaults are `volume: 35`, `vibration_strength: 60`, `flash_enabled: false`, and
 
 | Type | Required binding and condition |
 | --- | --- |
-| `agent_done` | `source` defaults to and must equal `herdr`. A previously observed agent changes from `working` to `done`, or to `idle` when `include_idle` is true (the default). First observation establishes a baseline. |
+| `agent_done` | `source` defaults to `herdr` and may name any `agents` source. A previously observed agent changes from `working` to `done`, or to `idle` when `include_idle` is true (the default). First observation establishes a baseline. |
 | `metric_high` | Required `host`, `source`, `key`, `unit`, `threshold`, and `recover`. A fresh matching-unit value stays strictly above `threshold` for `hold` seconds. A value at or below `recover` rearms it; `recover` must be below `threshold`. Missing or stale samples interrupt the timer. |
 | `host_offline` | A previously observed online host remains offline for `hold` seconds, after the initial 30-second report timeout. Wi-Fi loss suspends detection; the host must be seen online again to rearm. |
 
@@ -193,7 +193,7 @@ Defaults are `volume: 35`, `vibration_strength: 60`, `flash_enabled: false`, and
 
 The RAM queue holds 8 notifications without history. Warnings precede pending informational notifications but never interrupt the current notification. Rule/host/agent duplicates are suppressed. Metric recovery and host recovery remove corresponding pending notifications. Dismissal or timeout advances the queue. Changing rules clears notifications and baselines; changing only output levels or the global flash switch preserves them. Level changes update queued notifications.
 
-Diagnostics expose `alert_id`, `alerts_pending`, and `alerts_dropped`. Each of `audio_*`, `vibration_*`, and `flash_*` has `queued`, `played`, `failed`, `dropped`, and `busy` fields. `played` records completed driver calls. `audio_muted` and `vibration_muted` are temporary RAM switches reset at reboot. Settings output tests bypass alert rules and update only output counters.
+Diagnostics expose `alert_id`, `alerts_pending`, and `alerts_dropped`. Each of `audio_*`, `vibration_*`, and `flash_*` has `queued`, `played`, `failed`, `dropped`, and `busy` fields. `played` records completed driver calls. `dropped` counts full queues and queued outputs suppressed by a later mute or flash-disable change; outputs suppressed before enqueue are not counted. `audio_muted` and `vibration_muted` are temporary RAM switches reset at reboot. Settings output tests bypass alert rules and update only output counters.
 
 ## Device settings and persistence
 

@@ -55,6 +55,7 @@ static esp_err_t provision(const esp_iris_rpc_request_t *request, uint8_t *respo
         memset(config, 0, sizeof(*config));
         result = curio_config_parse(upload, uploaded, config, error, sizeof(error)) && config->network.ssid[0]
             ? ESP_OK : ESP_ERR_INVALID_ARG;
+        curio_config_free(config);
         free(config);
     }
     if (result == ESP_OK) {

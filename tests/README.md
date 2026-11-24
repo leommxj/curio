@@ -26,15 +26,15 @@ python3 -m playwright install chromium
 | Scripts | `python3 -m unittest discover -s tests/scripts -v` | Make build/flash ordering, deployment arguments, generated units, sudo paths and uninstall behavior |
 | Collector | `cd collector && go test ./...` | Configuration, source lifetimes, herdr mapping, HTTPS, disk sampling, CPU/network counter differences and scheduling |
 
+Module tests live beside their implementations as `firmware/modules/widgets/<type>/test.c` and `firmware/modules/alerts/<type>/test.c`. The registry generator adds them to the layout and alert suites. Each module's `cases.json` checks C/browser configuration parity in the browser suite. Cross-module configuration, UI and browser scenarios remain in `tests/`.
+
 Core, layout, alerts and feedback also support `sanitize` for AddressSanitizer, UndefinedBehaviorSanitizer and leak checks. Host C tests do not require ESP-IDF. Core and alerts accept `CJSON_DIR` to override `.deps/cJSON`.
 
-Deployment tests use temporary directories and command substitutes; they do not install or change real services. Generated units are checked with systemd, but permissions, startup and restart still need verification on the target machine. Run `go test -race ./...` and `go vet ./...` in `collector/` for Go concurrency and static checks.
+Deployment tests use temporary directories and command substitutes. UI tests compile LVGL with board and FreeRTOS stubs; override the source path with `make test-ui LVGL_DIR=/path/to/lvgl`. Hardware, service installation and GUI behavior require checks on their target platforms.
 
-On Windows, `go test ./...` in `collector/` also checks service startup validation, status queries, stop/shutdown, cancellation of an active HTTP request, registered configuration paths, built-in account SIDs and executable replacement. `pwsh -NoProfile -File tests/scripts/test_windows_window.ps1` checks configuration lookup, editor arguments and UAC command construction without elevation or service changes; Windows PowerShell can run it with `powershell` instead. These checks do not verify SCM installation and upgrade, account permissions, automatic startup, recovery actions or the visible Windows GUI.
+On Windows, run `go test ./...` in `collector/` for service lifecycle tests and `powershell -NoProfile -File tests/scripts/test_windows_window.ps1` for setup-window command tests.
 
-Override LVGL with `make -C tests/ui test LVGL_DIR=/path/to/lvgl`. UI tests compile the real UI, core, layout and LVGL, with stubs for board support, FreeRTOS, audio and health services. C test artifacts go to `build/<suite>-tests/`. Host tests cannot verify physical touch, LCD output, panel orientation, actual sound/vibration/flash, sensor hardware or ESP32 resource limits.
-
-Integration tests compile the Collector and start `scripts/dev/hub.py` on a random loopback port. The Hub uses the firmware's C core and YAML model via `build/libcurio_dev.so`. Tests manage temporary configuration, credentials and Collector binaries. They cover status snapshots, status widget YAML and independent data lifetimes. On Linux they also exercise native CPU, memory, disk and network sampling and verify that a failed herdr source does not stop other sources. Native Windows/macOS sampling requires testing on those platforms.
+Integration tests build the Collector and start the development Hub on a random loopback port with temporary configuration. On Linux they also exercise native system metrics and source-failure isolation.
 
 ## Local development Hub
 
@@ -48,4 +48,4 @@ make dev-hub ARGS="--token-file build/dev-token --admin-token-file build/dev-adm
 
 Open `http://127.0.0.1:7340` and log in with `build/dev-admin-token`. For a test Collector, use that endpoint, `allow_http_loopback: true`, and a token path relative to its YAML file or an absolute path to `build/dev-token`; omit `ca`.
 
-The Hub binds only to loopback. It saves full configuration, including current tokens, in `build/dev-state/curio.yaml`. Token files initialize new configurations only. It does not emulate the board's networking, NVS or display drivers.
+The Hub binds only to loopback. It saves full configuration, including current tokens, in `build/dev-state/curio.yaml`. Token files initialize new configurations only.

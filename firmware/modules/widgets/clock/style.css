@@ -1,0 +1,27 @@
+.clock-card {
+  padding: 0;
+}
+.clock-title, .clock-date, .clock-time {
+  position: absolute;
+  left: 8px;
+  width: calc(100% - 16px);
+  white-space: nowrap;
+}
+.clock-title, .clock-date {
+  font-size: 14px;
+  line-height: 18px;
+  color: #94a6bc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.clock-title {
+  top: 6px;
+}
+.clock-date {
+  bottom: 7px;
+  text-align: center;
+}
+.clock-time {
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}

@@ -468,10 +468,7 @@ static void network_task(void *arg)
         bool clock_enabled = false;
         char ntp_server[128];
         strcpy(ntp_server, curio_app.device.ntp_server);
-        clock_enabled = false;
-        for (size_t p = 0; p < curio_app.layout.page_count; p++)
-            for (size_t w = 0; w < curio_app.layout.pages[p].widget_count; w++)
-                clock_enabled |= curio_app.layout.pages[p].widgets[w].type == CURIO_WIDGET_CLOCK;
+        clock_enabled = (curio_layout_services(&curio_app.layout) & CURIO_SERVICE_TIME) != 0;
         xSemaphoreGive(curio_app.mutex);
         curio_clock_update(clock_enabled, connected, events & NETWORK_CONNECTED, ntp_server);
         if (connected && !server && tls) {

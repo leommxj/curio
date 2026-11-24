@@ -4,6 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../../firmware/modules/widgets/agents/config.h"
+#include "../../firmware/modules/widgets/status/config.h"
+#include "../../firmware/modules/widgets/clock/config.h"
+#include "../../firmware/modules/alerts/agent_done/config.h"
+#include "../../firmware/modules/alerts/metric_high/config.h"
+#include "../../firmware/modules/alerts/host_offline/config.h"
 
 static const char *minimal =
     "access:\n  admin_token: example-admin-token-0001\n  collector_token: example-collector-token-0001\n"
@@ -23,7 +29,7 @@ static void test_defaults(void)
     assert(config.display.page_count == 1 && !strcmp(config.display.default_page, "home"));
     curio_widget_config_t *w = &config.display.pages[0].widgets[0];
     assert(!strcmp(w->id, "agents-1") && !strcmp(w->title, "Agents") && w->col == 0 && w->row == 0 && w->cols == 4 && w->rows == 6);
-    assert(w->all_hosts && w->auto_page && !strcmp(w->source_id, "herdr") && w->filter == CURIO_FILTER_ALL);
+    assert(((curio_agents_config_t *)w->options)->all_hosts && ((curio_agents_config_t *)w->options)->auto_page && !strcmp(((curio_agents_config_t *)w->options)->source_id, "herdr") && ((curio_agents_config_t *)w->options)->filter == CURIO_FILTER_ALL);
     assert(config.alerts.volume == 35 && config.alerts.vibration_strength == 60 && !config.alerts.rule_count && !config.alerts.flash_enabled);
     char *yaml = curio_config_yaml(&config);
     assert(yaml && !strstr(yaml, "revision") && strstr(yaml, "admin_token:") && strstr(yaml, "vibration_strength: 60") && strstr(yaml, "flash_enabled: false") && !strstr(yaml, "flash:") && !strstr(yaml, "vibrate:"));
@@ -50,22 +56,23 @@ static void test_roundtrip(void)
       "  - {type: metric_high, host: one, source: system.memory, key: usage_pct, unit: percent, threshold: 90, recover: 80}\n"
       "  - {type: host_offline, enabled: false}\n";
     assert(curio_config_parse(yaml, strlen(yaml), &config, NULL, 0));
-    assert(config.alerts.rules[0].display_s == 0 && config.alerts.rules[0].vibrate && !config.alerts.rules[0].sound && !config.alerts.rules[0].include_idle && config.alerts.vibration_strength == 0);
+    assert(config.alerts.rules[0].display_s == 0 && config.alerts.rules[0].vibrate && !config.alerts.rules[0].sound && !((agent_done_options_t *)config.alerts.rules[0].options)->include_idle && config.alerts.vibration_strength == 0);
     assert(config.alerts.flash_enabled && config.alerts.rules[0].flash && !config.alerts.rules[1].flash);
-    assert(config.alerts.rules[1].hold_s == 60 && config.alerts.rules[1].display_s == 10);
-    assert(config.alerts.rules[2].hold_s == 30 && !config.alerts.rules[2].enabled);
+    assert(((metric_high_options_t *)config.alerts.rules[1].options)->hold_s == 60 && config.alerts.rules[1].display_s == 10);
+    assert(((host_offline_options_t *)config.alerts.rules[2].options)->hold_s == 30 && !config.alerts.rules[2].enabled);
     const curio_widget_config_t *status = &config.display.pages[1].widgets[2];
-    assert(status->type == CURIO_WIDGET_STATUS && !strcmp(status->title, "Status"));
-    assert(!strcmp(status->host_id, "one") && !strcmp(status->source_id, "service.api"));
-    curio_config_t *before = malloc(sizeof(*before));
+    assert(status->type == curio_widget_type_find("status") && !strcmp(status->title, "Status"));
+    assert(!strcmp(((curio_status_config_t *)status->options)->host_id, "one") && !strcmp(((curio_status_config_t *)status->options)->source_id, "service.api"));
+    curio_config_t *before = calloc(1, sizeof(*before));
     assert(before);
-    *before = config;
+    assert(curio_config_clone(before, &config));
     char *emitted = curio_config_yaml(&config);
     assert(emitted && strlen(emitted) < CURIO_CONFIG_MAX_BYTES);
     assert(curio_config_parse(emitted, strlen(emitted), &config, NULL, 0));
-    assert(!memcmp(before, &config, sizeof(config)));
+    assert(curio_config_equal(before, &config));
     assert(strstr(emitted, "duration: 0") && !strstr(emitted, "duration: 10"));
     cJSON_free(emitted);
+    curio_config_free(before);
     free(before);
 }
 static void reject(const char *suffix)
@@ -74,11 +81,12 @@ static void reject(const char *suffix)
     char *yaml = malloc(n + 1);
     assert(yaml);
     strcpy(yaml, minimal); strcat(yaml, suffix);
-    curio_config_t *before = malloc(sizeof(*before));
-    assert(before); *before = config;
+    curio_config_t *before = calloc(1, sizeof(*before));
+    assert(before); assert(curio_config_clone(before, &config));
     char error[80];
     assert(!curio_config_parse(yaml, n, &config, error, sizeof(error)) && *error);
-    assert(!memcmp(before, &config, sizeof(config)));
+    assert(curio_config_equal(before, &config));
+    curio_config_free(before);
     free(before); free(yaml);
 }
 static void test_invalid(void)
@@ -105,6 +113,7 @@ static void test_invalid(void)
     };
     for (size_t i = 0; i < sizeof(invalid) / sizeof(*invalid); i++) assert(!curio_config_parse(invalid[i], strlen(invalid[i]), &config, NULL, 0));
 }
+
 static void test_network_tls(void)
 {
     const char *yaml =
@@ -129,12 +138,13 @@ static void test_network_tls(void)
     assert(strstr(config.tls.certificate, "example-certificate\n"));
     curio_config_t *before = calloc(1, sizeof(*before));
     assert(before);
-    *before = config;
+    assert(curio_config_clone(before, &config));
     char *out = curio_config_yaml(&config);
     assert(out && strstr(out, "certificate: |") && strstr(out, "private_key: |"));
     assert(curio_config_parse(out, strlen(out), &config, NULL, 0));
-    assert(!memcmp(before, &config, sizeof(config)));
+    assert(curio_config_equal(before, &config));
     cJSON_free(out);
+    curio_config_free(before);
     free(before);
     free(input);
 
@@ -241,10 +251,14 @@ static void test_allocation_failure(void)
 {
     cJSON_Hooks hooks = {limited_alloc, free};
     for (unsigned i = 1; i <= 50; i++) {
+        curio_config_t before = {0};
+        assert(curio_config_clone(&before, &config));
         allocations = 0; fail_at = i;
         cJSON_InitHooks(&hooks);
-        (void)curio_config_parse(minimal, strlen(minimal), &config, NULL, 0);
+        bool ok = curio_config_parse(minimal, strlen(minimal), &config, NULL, 0);
         cJSON_InitHooks(NULL);
+        if (!ok) assert(curio_config_equal(&before, &config));
+        curio_config_free(&before);
     }
     assert(curio_config_parse(minimal, strlen(minimal), &config, NULL, 0));
     for (unsigned i = 1; i <= 50; i++) {
@@ -265,15 +279,15 @@ static void test_clock(void)
         snprintf(yaml, sizeof(yaml), "%s%s}]}]}\n", prefix, valid[i]);
         assert(curio_config_parse(yaml, strlen(yaml), &config, NULL, 0));
         curio_widget_config_t *w = &config.display.pages[0].widgets[0];
-        assert(w->type == CURIO_WIDGET_CLOCK && !*w->host_id && !*w->source_id);
+        assert(w->type == curio_widget_type_find("clock"));
         assert(!*w->title);
         assert(!strcmp(config.device.ntp_server, "pool.ntp.org"));
         char *out = curio_config_yaml(&config);
         assert(out && !strstr(out, "host:") && !strstr(out, "source:") && !strstr(out, "ntp_server:") && !strstr(out, "title:"));
         if (!i) assert(!strstr(out, "utc_offset:") && !strstr(out, "seconds:"));
-        int offset = w->utc_offset_minutes;
+        int offset = ((curio_clock_config_t *)w->options)->utc_offset_minutes;
         assert(curio_config_parse(out, strlen(out), &config, NULL, 0));
-        assert(config.display.pages[0].widgets[0].utc_offset_minutes == offset);
+        assert(((curio_clock_config_t *)config.display.pages[0].widgets[0].options)->utc_offset_minutes == offset);
         cJSON_free(out);
     }
     strcpy(config.display.pages[0].widgets[0].title, "Office");
@@ -305,5 +319,6 @@ static void test_clock(void)
 int main(void)
 {
     test_clock(); test_defaults(); test_roundtrip(); test_invalid(); test_network_tls(); test_grid_fields(); test_allocation_failure();
+    curio_config_free(&config);
     puts("config tests passed");
 }

@@ -1,6 +1,37 @@
+#include "curio_alerts.h"
+uint64_t fixture_alerts_remaining_ms(const curio_alerts_t *, uint64_t);
+uint32_t fixture_alerts_revision(const curio_alerts_t *);
+void fixture_alerts_tick(curio_alerts_t *, const curio_core_t *, uint64_t, bool);
+const curio_alert_notification_t *fixture_alerts_current(const curio_alerts_t *, uint64_t);
+void fixture_alerts_dismiss(curio_alerts_t *, uint64_t);
+#define curio_alerts_remaining_ms fixture_alerts_remaining_ms
+#define curio_alerts_revision fixture_alerts_revision
+#define curio_alerts_tick fixture_alerts_tick
+#define curio_alerts_current fixture_alerts_current
+#define curio_alerts_dismiss fixture_alerts_dismiss
 #include "../../firmware/main/curio_ui.c"
+#undef curio_alerts_remaining_ms
+#undef curio_alerts_revision
+#undef curio_alerts_tick
+#undef curio_alerts_current
+#undef curio_alerts_dismiss
+#include "../../firmware/modules/widgets/agents/view.h"
+#include "../../firmware/modules/widgets/metric/view.h"
+#include "../../firmware/modules/widgets/status/view.h"
+#include "../../firmware/modules/widgets/clock/view.h"
+#include "../../firmware/modules/widgets/machine/view.h"
+#include "../../firmware/modules/alerts/agent_done/config.h"
+#include "../../firmware/modules/alerts/metric_high/config.h"
+#include "../../firmware/modules/alerts/host_offline/config.h"
 #include <assert.h>
 #include <stdio.h>
+static curio_widget_config_t fixture_widget(const curio_widget_type_t *type, unsigned cols, unsigned rows)
+{
+    curio_widget_config_t widget = {.type = type, .cols = cols, .rows = rows};
+    widget.options = calloc(1, type->options_size);
+    assert(widget.options);
+    return widget;
+}
 curio_app_t curio_app;
 static unsigned setup_starts, setup_stops;
 void curio_network_setup(bool enabled)
@@ -16,12 +47,12 @@ static curio_alert_notification_t fixture_notification;
 static bool fixture_visible;
 static uint32_t fixture_runtime_revision;
 static uint64_t fixture_deadline;
-uint64_t curio_alerts_remaining_ms(const curio_alerts_t *alerts, uint64_t time)
+uint64_t fixture_alerts_remaining_ms(const curio_alerts_t *alerts, uint64_t time)
 {
     (void)alerts;
     return fixture_visible && fixture_deadline > time ? fixture_deadline - time : 0;
 }
-uint32_t curio_alerts_revision(const curio_alerts_t *alerts)
+uint32_t fixture_alerts_revision(const curio_alerts_t *alerts)
 {
     (void)alerts;
     return fixture_runtime_revision;
@@ -81,8 +112,8 @@ esp_err_t curio_settings_set_page_auto_page(const char *page_id, bool enabled)
         if (strcmp(p->id, page_id)) continue;
         bool found = false;
         for (size_t j = 0; j < p->widget_count; j++)
-            if (p->widgets[j].type == CURIO_WIDGET_AGENTS) {
-                p->widgets[j].auto_page = enabled;
+            if (p->widgets[j].type == &curio_widget_agents) {
+                ((curio_agents_config_t *)p->widgets[j].options)->auto_page = enabled;
                 found = true;
             }
         if (found) { curio_app.layout.revision++; return ESP_OK; }
@@ -99,17 +130,17 @@ bool curio_feedback_play(uint8_t volume, uint8_t strength, bool flash)
     if (flash && fixture_flash_enabled) flash_calls++;
     return volume || strength || (flash && fixture_flash_enabled);
 }
-void curio_alerts_tick(curio_alerts_t *alerts, const curio_core_t *core, uint64_t time, bool wifi)
+void fixture_alerts_tick(curio_alerts_t *alerts, const curio_core_t *core, uint64_t time, bool wifi)
 {
     (void)alerts; (void)core; (void)time; (void)wifi;
 }
-const curio_alert_notification_t *curio_alerts_current(const curio_alerts_t *alerts, uint64_t time)
+const curio_alert_notification_t *fixture_alerts_current(const curio_alerts_t *alerts, uint64_t time)
 {
     (void)alerts;
     if (fixture_deadline && time >= fixture_deadline) fixture_visible = false;
     return fixture_visible ? &fixture_notification : NULL;
 }
-void curio_alerts_dismiss(curio_alerts_t *alerts, uint64_t time)
+void fixture_alerts_dismiss(curio_alerts_t *alerts, uint64_t time)
 {
     (void)alerts; (void)time;
     fixture_visible = false;
@@ -160,15 +191,15 @@ static void swipe(int x, int y, int dx, int dy)
         step(x + dx * i / 8, y + dy * i / 8, true);
     step(x + dx, y + dy, false);
     step(x + dx, y + dy, false);
-    printf("%s filter=%d\n", lv_label_get_text(widgets[0]->data.agents->footer), widgets[0]->filter);
+    printf("%s filter=%d\n", lv_label_get_text(((agents_payload_t *)widgets[0]->data)->footer), ((agents_payload_t *)widgets[0]->data)->filter);
 }
 static void check(size_t p, curio_filter_t filter)
 {
-    assert(widgets[0]->page == p);
-    assert(widgets[0]->filter == filter);
+    assert(((agents_payload_t *)widgets[0]->data)->page == p);
+    assert(((agents_payload_t *)widgets[0]->data)->filter == filter);
     char expected[64];
     snprintf(expected, sizeof(expected), "16 agents | %zu / 4", p + 1);
-    assert(!strcmp(lv_label_get_text(widgets[0]->data.agents->footer), expected));
+    assert(!strcmp(lv_label_get_text(((agents_payload_t *)widgets[0]->data)->footer), expected));
 }
 static void at(uint64_t time)
 {
@@ -180,11 +211,11 @@ static void at(uint64_t time)
 }
 static void extra_checks(void)
 {
-    widget_t *w = widgets[0];
-    agents_payload_t *a = w->data.agents;
-    w->page = 0;
-    w->config.auto_page = true;
-    w->filter = CURIO_FILTER_ALL;
+    curio_widget_t *w = widgets[0];
+    agents_payload_t *a = ((agents_payload_t *)w->data);
+    ((agents_payload_t *)w->data)->page = 0;
+    ((curio_agents_config_t *)w->config.options)->auto_page = true;
+    ((agents_payload_t *)w->data)->filter = CURIO_FILTER_ALL;
     a->next_page_ms = now + 10000;
     refresh(NULL);
     uint64_t due = a->next_page_ms;
@@ -192,21 +223,21 @@ static void extra_checks(void)
     check(0, CURIO_FILTER_ALL);
     at(due);
     check(1, CURIO_FILTER_ALL);
-    w->page = 3;
+    ((agents_payload_t *)w->data)->page = 3;
     a->next_page_ms = now + 10000;
     at(a->next_page_ms);
     check(0, CURIO_FILTER_ALL);
-    w->config.auto_page = false;
+    ((curio_agents_config_t *)w->config.options)->auto_page = false;
     at(now + 20000);
     check(0, CURIO_FILTER_ALL);
-    w->config.auto_page = true;
-    w->config.host_count = 0;
-    w->config.all_hosts = false;
+    ((curio_agents_config_t *)w->config.options)->auto_page = true;
+    ((curio_agents_config_t *)w->config.options)->host_count = 0;
+    ((curio_agents_config_t *)w->config.options)->all_hosts = false;
     refresh(NULL);
-    assert(w->pages == 1);
+    assert(((agents_payload_t *)w->data)->pages == 1);
     at(now + 20000);
-    assert(w->page == 0);
-    w->config.all_hosts = true;
+    assert(((agents_payload_t *)w->data)->page == 0);
+    ((curio_agents_config_t *)w->config.options)->all_hosts = true;
     refresh(NULL);
     swipe(400, 250, -300, 0);
     check(1, CURIO_FILTER_ALL);
@@ -217,24 +248,24 @@ static void extra_checks(void)
     check(2, CURIO_FILTER_ALL);
     step(400, 155, true);
     step(400, 155, false);
-    assert(w->filter == CURIO_FILTER_WORKING && w->page == 0);
+    assert(((agents_payload_t *)w->data)->filter == CURIO_FILTER_WORKING && ((agents_payload_t *)w->data)->page == 0);
     due = a->next_page_ms;
     at(due - 1);
-    assert(w->page == 0);
+    assert(((agents_payload_t *)w->data)->page == 0);
     at(due);
-    assert(w->page == 1);
+    assert(((agents_payload_t *)w->data)->page == 1);
     step(250, 250, true);
     at(now + 30000);
-    assert(w->page == 1);
+    assert(((agents_payload_t *)w->data)->page == 1);
     due = a->next_page_ms;
     step(250, 250, false);
     at(due - 1);
-    assert(w->page == 1);
+    assert(((agents_payload_t *)w->data)->page == 1);
     at(due);
-    assert(w->page == 2);
+    assert(((agents_payload_t *)w->data)->page == 2);
     step(80, 155, true);
     step(80, 155, false);
-    w->config.auto_page = false;
+    ((curio_agents_config_t *)w->config.options)->auto_page = false;
     curio_host_t *h = &curio_app.core.hosts[0];
     curio_agent_t *v = h->sources[0].agents;
     h->last_report_ms = now;
@@ -302,11 +333,11 @@ static void battery_checks(void)
 
 static void notification_checks(void)
 {
-    widget_t *w = widgets[0];
-    w->config.auto_page = true;
-    w->filter = CURIO_FILTER_ALL;
-    w->page = 0;
-    w->data.agents->next_page_ms = now + 100;
+    curio_widget_t *w = widgets[0];
+    ((curio_agents_config_t *)w->config.options)->auto_page = true;
+    ((agents_payload_t *)w->data)->filter = CURIO_FILTER_ALL;
+    ((agents_payload_t *)w->data)->page = 0;
+    ((agents_payload_t *)w->data)->next_page_ms = now + 100;
     curio_app.alerts = (curio_alerts_t *)1;
     curio_app.alert_config.revision = 1;
     fixture_runtime_revision = 1;
@@ -339,26 +370,26 @@ static void notification_checks(void)
     curio_app.layout.revision++;
     refresh(NULL);
     w = widgets[0];
-    w->config.auto_page = true;
-    w->data.agents->next_page_ms = now + 100;
+    ((curio_agents_config_t *)w->config.options)->auto_page = true;
+    ((agents_payload_t *)w->data)->next_page_ms = now + 100;
     assert(lv_obj_get_child(lv_screen_active(), -1) == notification_mask);
     assert(audio_calls == 1);
     unsigned prior_clicks = clicks;
     step(400, 155, true);
     step(400, 155, false);
-    assert(clicks == prior_clicks && w->filter == CURIO_FILTER_ALL);
+    assert(clicks == prior_clicks && ((agents_payload_t *)w->data)->filter == CURIO_FILTER_ALL);
     swipe(400, 250, -300, 0);
-    assert(w->page == 0);
+    assert(((agents_payload_t *)w->data)->page == 0);
     at(now + 20000);
-    assert(w->page == 0 && audio_calls == 1);
+    assert(((agents_payload_t *)w->data)->page == 0 && audio_calls == 1);
     curio_app.alert_config.revision++;
     curio_app.alert_config.volume = 61;
     refresh(NULL);
     assert(audio_calls == 1 && notification_mask);
     close_notification();
     assert(!notification_mask && !fixture_visible);
-    at(w->data.agents->next_page_ms);
-    assert(w->page == 1);
+    at(((agents_payload_t *)w->data)->next_page_ms);
+    assert(((agents_payload_t *)w->data)->page == 1);
     fixture_visible = true;
     curio_app.alert_config.revision++;
     fixture_runtime_revision++;
@@ -427,9 +458,9 @@ static void notification_layout_checks(void)
     assert(card.x1 >= 16 && card.y1 >= 16 && card.x2 < 464 && card.y2 < 464);
     assert(button_area.y1 > viewport.y2 && button_area.y2 < card.y2);
     assert(lv_obj_get_scroll_bottom(content) > 0);
-    size_t page = widgets[0]->page;
+    size_t page = ((agents_payload_t *)widgets[0]->data)->page;
     swipe(240, viewport.y2 - 20, 0, -180);
-    assert(lv_obj_get_scroll_y(content) > 0 && widgets[0]->page == page);
+    assert(lv_obj_get_scroll_y(content) > 0 && ((agents_payload_t *)widgets[0]->data)->page == page);
     lv_obj_scroll_to_y(content, 100, LV_ANIM_OFF);
     refresh(NULL);
     assert(lv_obj_get_scroll_y(content) == 100);
@@ -557,11 +588,11 @@ static void settings_checks(void)
     refresh(NULL);
     assert(lv_slider_get_value(vibration_slider) == 60 && vibration_saves == 3);
     assert(vibration_calls == vibrations_before_sliders);
-    bool initial_paging = curio_app.layout.pages[0].widgets[0].auto_page;
+    bool initial_paging = ((curio_agents_config_t *)curio_app.layout.pages[0].widgets[0].options)->auto_page;
     tap(418, 138);
-    assert(curio_app.layout.pages[0].widgets[0].auto_page != initial_paging);
+    assert(((curio_agents_config_t *)curio_app.layout.pages[0].widgets[0].options)->auto_page != initial_paging);
     curio_app.device.auto_rotate = false;
-    curio_app.layout.pages[0].widgets[0].auto_page = true;
+    ((curio_agents_config_t *)curio_app.layout.pages[0].widgets[0].options)->auto_page = true;
     curio_app.layout.revision++;
     refresh(NULL);
     assert(!lv_obj_has_state(rotate_switch, LV_STATE_CHECKED));
@@ -573,15 +604,15 @@ static void settings_checks(void)
     curio_app.layout.revision++;
     refresh(NULL);
     step(418, 138, false);
-    assert(curio_app.layout.pages[0].widgets[0].auto_page);
+    assert(((curio_agents_config_t *)curio_app.layout.pages[0].widgets[0].options)->auto_page);
     assert(!strcmp(lv_label_get_text(settings_error), "ESP_FAIL"));
     strcpy(curio_app.layout.pages[0].id, original_id);
     curio_app.layout.revision++;
     refresh(NULL);
-    size_t page = widgets[0]->page;
+    size_t page = ((agents_payload_t *)widgets[0]->data)->page;
     swipe(400, 250, -300, 0);
     at(now + 20000);
-    assert(widgets[0]->page == page);
+    assert(((agents_payload_t *)widgets[0]->data)->page == page);
     curio_app.alert_config.volume = 35;
     unsigned sounds = audio_calls, vibrations = vibration_calls, dismissed = dismiss_calls;
     tap(350, 430);
@@ -617,14 +648,15 @@ static void settings_checks(void)
     assert(settings_mask);
     tap(410, 38);
     assert(!settings_mask);
-    int original_type = curio_app.layout.pages[0].widgets[0].type;
-    curio_app.layout.pages[0].widgets[0].type = CURIO_WIDGET_METRIC;
+    curio_widget_config_t original_widget = curio_app.layout.pages[0].widgets[0];
+    curio_app.layout.pages[0].widgets[0] = fixture_widget(&curio_widget_metric, 4, 5);
     curio_app.layout.revision++;
     refresh(NULL);
     tap(444, 28);
     assert(settings_mask && lv_obj_has_state(paging_switch, LV_STATE_DISABLED));
     tap(410, 38);
-    curio_app.layout.pages[0].widgets[0].type = original_type;
+    curio_widget_config_free(&curio_app.layout.pages[0].widgets[0]);
+    curio_app.layout.pages[0].widgets[0] = original_widget;
     curio_app.layout.revision++;
     refresh(NULL);
     tap(444, 28);
@@ -691,13 +723,9 @@ static void alert_details_checks(void)
 
     curio_app.alert_config = (curio_alert_config_t){.revision = saved.revision + 1,
         .volume = 0, .vibration_strength = 60, .rule_count = 3, .rules = {
-            {.id = "agent-complete", .type = CURIO_ALERT_AGENT_DONE, .enabled = true, .host_id = "*",
-             .source_id = "herdr", .include_idle = true, .display_s = 10, .sound = true, .vibrate = true, .flash = true},
-            {.id = "memory-high", .type = CURIO_ALERT_METRIC_HIGH, .host_id = "workstation",
-             .source_id = "system.memory", .key = "usage_pct", .unit = "percent", .hold_s = 60,
-             .threshold = 92.5, .recover = 80, .display_s = 0},
-            {.id = "offline", .type = CURIO_ALERT_HOST_OFFLINE, .enabled = true, .host_id = "probe",
-             .hold_s = 30, .display_s = 10},
+            {.id = "agent-complete", .type = &curio_alert_agent_done, .enabled = true, .options = &(agent_done_options_t){.host_id = "*", .source_id = "herdr", .include_idle = true}, .display_s = 10, .sound = true, .vibrate = true, .flash = true},
+            {.id = "memory-high", .type = &curio_alert_metric_high, .options = &(metric_high_options_t){.host_id = "workstation", .source_id = "system.memory", .key = "usage_pct", .unit = "percent", .hold_s = 60, .threshold = 92.5, .recover = 80}, .display_s = 0},
+            {.id = "offline", .type = &curio_alert_host_offline, .enabled = true, .options = &(host_offline_options_t){.host_id = "probe", .hold_s = 30}, .display_s = 10},
         }};
     refresh(NULL);
     assert(!strcmp(lv_label_get_text(settings_alerts), "2 / 3 enabled"));
@@ -709,7 +737,7 @@ static void alert_details_checks(void)
     assert(find_label(alert_details_list, "Above: 92.5% for 60s\nRecover: <= 80%"));
     assert(find_label(alert_details_list, "Display: Until closed\nSound: Off\nVibration: Off"));
     assert(find_label(alert_details_list, "Disabled") && find_label(alert_details_list, "Offline for: 30s"));
-    size_t agent_page = widgets[0]->page;
+    size_t agent_page = ((agents_payload_t *)widgets[0]->data)->page;
     swipe(230, 410, 0, -260);
     assert(lv_obj_get_scroll_y(alert_details_list) > 0);
     for (unsigned i = 0; i < 40; i++) step(230, 150, false);
@@ -717,12 +745,12 @@ static void alert_details_checks(void)
     int32_t scroll = lv_obj_get_scroll_y(alert_details_list);
     allocations = config_allocations;
     at(now + 20000);
-    assert(widgets[0]->page == agent_page && config_allocations == allocations);
+    assert(((agents_payload_t *)widgets[0]->data)->page == agent_page && config_allocations == allocations);
     assert(lv_obj_get_scroll_y(alert_details_list) == scroll);
 
     curio_app.alert_config.flash_enabled = true;
     curio_app.alert_config.vibration_strength = 22;
-    curio_app.alert_config.rules[0].include_idle = false;
+    ((agent_done_options_t *)curio_app.alert_config.rules[0].options)->include_idle = false;
     curio_app.alert_config.revision++;
     refresh(NULL);
     assert(find_label(alert_details_list, "Vibration: On (22%)"));
@@ -744,16 +772,19 @@ static void alert_details_checks(void)
     curio_app.alert_config.rule_count = 8;
     for (size_t i = 3; i < 8; i++) {
         curio_app.alert_config.rules[i] = curio_app.alert_config.rules[1];
+        curio_app.alert_config.rules[i].options = malloc(sizeof(metric_high_options_t));
+        assert(curio_app.alert_config.rules[i].options);
+        memcpy(curio_app.alert_config.rules[i].options, curio_app.alert_config.rules[1].options, sizeof(metric_high_options_t));
         snprintf(curio_app.alert_config.rules[i].id, 49, "rule-%zu", i);
-        memset(curio_app.alert_config.rules[i].host_id, 'W', 48);
-        curio_app.alert_config.rules[i].host_id[48] = 0;
+        memset(((metric_high_options_t *)curio_app.alert_config.rules[i].options)->host_id, 'W', 48);
+        ((metric_high_options_t *)curio_app.alert_config.rules[i].options)->host_id[48] = 0;
     }
     curio_app.alert_config.revision++;
     refresh(NULL);
     assert(lv_obj_get_child_count(alert_details_list) == 8);
     lv_obj_t *last = lv_obj_get_child(alert_details_list, -1);
     lv_obj_scroll_to_view(last, LV_ANIM_OFF);
-    assert(find_label(last, curio_app.alert_config.rules[7].host_id));
+    assert(find_label(last, ((metric_high_options_t *)curio_app.alert_config.rules[7].options)->host_id));
     assert(lv_obj_get_scroll_bottom(alert_details_list) == 0);
     for (uint32_t i = 0; i < lv_obj_get_child_count(last); i++) {
         lv_area_t card, child;
@@ -761,6 +792,7 @@ static void alert_details_checks(void)
         lv_obj_get_coords(lv_obj_get_child(last, i), &child);
         assert(child.y2 < card.y2 && child.x2 < card.x2);
     }
+    for (size_t i = 3; i < 8; i++) free(curio_app.alert_config.rules[i].options);
     curio_app.alert_config.rule_count = 0;
     curio_app.alert_config.revision++;
     refresh(NULL);
@@ -906,144 +938,150 @@ static void flash_checks(void)
 static void grid_checks(void)
 {
     curio_page_config_t *p = &curio_app.layout.pages[0];
-    curio_widget_config_t agents = p->widgets[0];
+    curio_widget_config_t agents;
+    assert(curio_widget_config_clone(&agents, &p->widgets[0]));
     agents.row = 0;
     agents.rows = 6;
-    p->widgets[0] = agents;
+    curio_widget_config_free(&p->widgets[0]);
+    assert(curio_widget_config_clone(&p->widgets[0], &agents));
     curio_app.layout.revision++;
     refresh(NULL);
     lv_obj_update_layout(lv_screen_active());
-    assert(widget_count == 1 && widgets[0]->data.agents->row_count == 7);
-    assert(widgets[0]->pages == 3);
+    assert(widget_count == 1 && ((agents_payload_t *)widgets[0]->data)->row_count == 7);
+    assert(((agents_payload_t *)widgets[0]->data)->pages == 3);
     assert(lv_obj_get_y(widgets[0]->box) == 60 && lv_obj_get_height(widgets[0]->box) == 408);
-    widget_t *previous = widgets[0];
+    curio_widget_t *previous = widgets[0];
     fail_allocation = true;
     p->widgets[0].rows = 5;
     p->widgets[0].row = 1;
     curio_app.layout.revision++;
     refresh(NULL);
-    assert(widgets[0] == previous && widgets[0]->data.agents->row_count == 7);
+    assert(widgets[0] == previous && ((agents_payload_t *)widgets[0]->data)->row_count == 7);
     fail_allocation = false;
     refresh(NULL);
     lv_obj_update_layout(lv_screen_active());
-    assert(widgets[0]->data.agents->row_count == 5 && widgets[0]->pages == 4);
+    assert(((agents_payload_t *)widgets[0]->data)->row_count == 5 && ((agents_payload_t *)widgets[0]->data)->pages == 4);
 
     p->widget_count = 2;
-    p->widgets[0] = agents;
+    curio_widget_config_free(&p->widgets[0]);
+    assert(curio_widget_config_clone(&p->widgets[0], &agents));
     p->widgets[0].cols = p->widgets[0].rows = 3;
-    p->widgets[0].auto_page = true;
-    p->widgets[1] = p->widgets[0];
+    ((curio_agents_config_t *)p->widgets[0].options)->auto_page = true;
+    assert(curio_widget_config_clone(&p->widgets[1], &p->widgets[0]));
     strcpy(p->widgets[1].id, "second");
     p->widgets[1].row = 3;
-    p->widgets[1].auto_page = false;
+    ((curio_agents_config_t *)p->widgets[1].options)->auto_page = false;
     curio_app.layout.revision++;
     refresh(NULL);
     lv_obj_update_layout(lv_screen_active());
     assert(widget_count == 2);
-    assert(widgets[0]->data.agents->row_count == 2 && widgets[1]->data.agents->row_count == 2);
-    assert(widgets[0]->pages == 8 && widgets[1]->pages == 8);
+    assert(((agents_payload_t *)widgets[0]->data)->row_count == 2 && ((agents_payload_t *)widgets[1]->data)->row_count == 2);
+    assert(((agents_payload_t *)widgets[0]->data)->pages == 8 && ((agents_payload_t *)widgets[1]->data)->pages == 8);
     swipe(300, 150, -240, 0);
-    assert(widgets[0]->page == 1 && widgets[1]->page == 0);
+    assert(((agents_payload_t *)widgets[0]->data)->page == 1 && ((agents_payload_t *)widgets[1]->data)->page == 0);
     swipe(300, 360, -240, 0);
-    assert(widgets[0]->page == 1 && widgets[1]->page == 1);
+    assert(((agents_payload_t *)widgets[0]->data)->page == 1 && ((agents_payload_t *)widgets[1]->data)->page == 1);
     tap(170, 78);
-    assert(widgets[0]->filter == CURIO_FILTER_ATTENTION && widgets[0]->count == 0);
-    assert(widgets[1]->filter == CURIO_FILTER_ALL && widgets[1]->count == 16);
+    assert(((agents_payload_t *)widgets[0]->data)->filter == CURIO_FILTER_ATTENTION && ((agents_payload_t *)widgets[0]->data)->count == 0);
+    assert(((agents_payload_t *)widgets[1]->data)->filter == CURIO_FILTER_ALL && ((agents_payload_t *)widgets[1]->data)->count == 16);
     tap(50, 78);
-    widgets[0]->config.auto_page = widgets[1]->config.auto_page = true;
-    widgets[0]->page = widgets[1]->page = 0;
-    widgets[0]->data.agents->next_page_ms = widgets[1]->data.agents->next_page_ms = now + 100;
+    ((curio_agents_config_t *)widgets[0]->config.options)->auto_page = ((curio_agents_config_t *)widgets[1]->config.options)->auto_page = true;
+    ((agents_payload_t *)widgets[0]->data)->page = ((agents_payload_t *)widgets[1]->data)->page = 0;
+    ((agents_payload_t *)widgets[0]->data)->next_page_ms = ((agents_payload_t *)widgets[1]->data)->next_page_ms = now + 100;
     step(100, 150, true);
     at(now + 100);
-    assert(widgets[0]->page == 0 && widgets[1]->page == 1);
+    assert(((agents_payload_t *)widgets[0]->data)->page == 0 && ((agents_payload_t *)widgets[1]->data)->page == 1);
     step(100, 150, false);
-    p->widgets[0].auto_page = true;
-    p->widgets[1].auto_page = false;
+    ((curio_agents_config_t *)p->widgets[0].options)->auto_page = true;
+    ((curio_agents_config_t *)p->widgets[1].options)->auto_page = false;
     tap(444, 28);
     assert(strstr(lv_label_get_text(settings_page), "Mixed"));
     assert(!lv_obj_has_state(paging_switch, LV_STATE_CHECKED));
     tap(418, 138);
-    assert(p->widgets[0].auto_page && p->widgets[1].auto_page);
+    assert(((curio_agents_config_t *)p->widgets[0].options)->auto_page && ((curio_agents_config_t *)p->widgets[1].options)->auto_page);
     assert(!strstr(lv_label_get_text(settings_page), "Mixed"));
     tap(418, 138);
-    assert(!p->widgets[0].auto_page && !p->widgets[1].auto_page);
+    assert(!((curio_agents_config_t *)p->widgets[0].options)->auto_page && !((curio_agents_config_t *)p->widgets[1].options)->auto_page);
     tap(410, 38);
     for (size_t w = 0; w < 2; w++) {
-        agents_payload_t *a = widgets[w]->data.agents;
+        agents_payload_t *a = ((agents_payload_t *)widgets[w]->data);
         for (size_t i = 0; i < a->row_count; i++)
             assert(lv_obj_get_y(a->rows[i].detail) + lv_obj_get_height(a->rows[i].detail) <= lv_obj_get_y(a->status));
         assert(lv_obj_get_y(a->status) + lv_obj_get_height(a->status) <= lv_obj_get_y(a->footer));
     }
-    widgets[0]->config.all_hosts = false;
-    widgets[0]->config.host_count = 1;
-    strcpy(widgets[0]->config.hosts[0], "missing");
+    ((curio_agents_config_t *)widgets[0]->config.options)->all_hosts = false;
+    ((curio_agents_config_t *)widgets[0]->config.options)->host_count = 1;
+    strcpy(((curio_agents_config_t *)widgets[0]->config.options)->hosts[0], "missing");
     refresh(NULL);
-    assert(!strcmp(lv_label_get_text(widgets[0]->data.agents->status), "missing: Waiting"));
-    assert(widgets[1]->count == 16);
+    assert(!strcmp(lv_label_get_text(((agents_payload_t *)widgets[0]->data)->status), "missing: Waiting"));
+    assert(((agents_payload_t *)widgets[1]->data)->count == 16);
 
     const char *json = "{\"v\":2,\"host_id\":\"h\",\"host_name\":\"Workstation\",\"sources\":{\"system.cpu\":{\"kind\":\"metrics\",\"status\":\"ok\",\"sample_age_ms\":0,\"metrics\":{\"usage_pct\":{\"value\":100,\"unit\":\"percent\"}}},\"system.memory\":{\"kind\":\"metrics\",\"status\":\"ok\",\"sample_age_ms\":0,\"metrics\":{\"usage_pct\":{\"value\":99.9,\"unit\":\"percent\"}}}}}";
     assert(curio_core_apply_json(&curio_app.core, json, strlen(json), now) == CURIO_OK);
+    curio_page_free(p);
     p->widget_count = 3;
-    p->widgets[0] = (curio_widget_config_t){.type = CURIO_WIDGET_METRIC, .cols = 1, .rows = 1};
+    p->widgets[0] = fixture_widget(&curio_widget_metric, 1, 1);
     strcpy(p->widgets[0].id, "tiny");
     strcpy(p->widgets[0].title, "CPU");
-    strcpy(p->widgets[0].host_id, "h");
-    strcpy(p->widgets[0].source_id, "system.cpu");
-    strcpy(p->widgets[0].key, "usage_pct");
-    strcpy(p->widgets[0].unit, "percent");
-    p->widgets[1] = p->widgets[0];
+    strcpy(((curio_metric_config_t *)p->widgets[0].options)->host_id, "h");
+    strcpy(((curio_metric_config_t *)p->widgets[0].options)->source_id, "system.cpu");
+    strcpy(((curio_metric_config_t *)p->widgets[0].options)->key, "usage_pct");
+    strcpy(((curio_metric_config_t *)p->widgets[0].options)->unit, "percent");
+    assert(curio_widget_config_clone(&p->widgets[1], &p->widgets[0]));
     p->widgets[1].col = 1;
     p->widgets[1].cols = 2;
-    p->widgets[2] = p->widgets[0];
-    p->widgets[2].type = CURIO_WIDGET_MACHINE;
+    p->widgets[2] = fixture_widget(&curio_widget_machine, 2, 2);
+    strcpy(((curio_machine_config_t *)p->widgets[2].options)->host_id, "h");
     p->widgets[2].row = 2;
     p->widgets[2].cols = p->widgets[2].rows = 2;
     curio_app.layout.revision++;
     refresh(NULL);
     lv_obj_update_layout(lv_screen_active());
     assert(widget_count == 3 && curio_ui_widget_count() == 3);
-    metric_payload_t *m = widgets[0]->data.metric;
+    metric_payload_t *m = ((metric_payload_t *)widgets[0]->data);
     assert(!m->detail);
-    assert(!strcmp(lv_label_get_text(m->value[0]), "100%"));
+    assert(!strcmp(lv_label_get_text(m->value), "100%"));
     lv_point_t size;
-    lv_text_get_size(&size, "100%", lv_obj_get_style_text_font(m->value[0], 0), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-    assert(size.x <= lv_obj_get_width(m->value[0]));
-    assert(lv_obj_get_style_text_font(m->value[0], 0) == &lv_font_montserrat_26);
-    assert(widgets[1]->data.metric->detail);
-    assert(!strcmp(lv_label_get_text(widgets[1]->data.metric->detail), "Workstation"));
-    assert(!strcmp(lv_label_get_text(widgets[2]->data.metric->value[1]), "99.9%"));
+    lv_text_get_size(&size, "100%", lv_obj_get_style_text_font(m->value, 0), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    assert(size.x <= lv_obj_get_width(m->value));
+    assert(lv_obj_get_style_text_font(m->value, 0) == &lv_font_montserrat_26);
+    assert(((metric_payload_t *)widgets[1]->data)->detail);
+    assert(!strcmp(lv_label_get_text(((metric_payload_t *)widgets[1]->data)->detail), "Workstation"));
+    assert(!strcmp(lv_label_get_text(((machine_payload_t *)widgets[2]->data)->value[1]), "99.9%"));
     const curio_host_t *host = &curio_app.core.hosts[0];
     const curio_source_t *source = &host->sources[0];
     uint64_t sampled = now;
     at(sampled + CURIO_STALE_MS);
     assert(curio_source_health(source, now) == CURIO_HEALTH_FRESH);
-    assert(!strcmp(lv_label_get_text(m->value[0]), "100%"));
+    assert(!strcmp(lv_label_get_text(m->value), "100%"));
     at(now + 1);
     assert(curio_source_health(source, now) == CURIO_HEALTH_STALE);
-    assert(!strcmp(lv_label_get_text(m->value[0]), "Stale"));
+    assert(!strcmp(lv_label_get_text(m->value), "Stale"));
     at(sampled + CURIO_OFFLINE_MS);
     assert(curio_source_health(source, now) == CURIO_HEALTH_STALE);
-    assert(!strcmp(lv_label_get_text(m->value[0]), "Stale"));
+    assert(!strcmp(lv_label_get_text(m->value), "Stale"));
     at(now + 1);
     assert(curio_host_health(host, now) == CURIO_HEALTH_OFFLINE);
     assert(curio_source_health(source, now) == CURIO_HEALTH_STALE);
-    assert(!strcmp(lv_label_get_text(m->value[0]), "Offline"));
+    assert(!strcmp(lv_label_get_text(m->value), "Offline"));
     assert(curio_core_apply_json(&curio_app.core, json, strlen(json), now) == CURIO_OK);
     curio_app.core.hosts[0].sources[0].status = CURIO_SOURCE_ERROR;
     refresh(NULL);
     lv_obj_update_layout(lv_screen_active());
-    assert(!strcmp(lv_label_get_text(m->value[0]), "Collection error"));
-    assert(lv_label_get_long_mode(m->value[0]) == LV_LABEL_LONG_WRAP);
-    lv_text_get_size(&size, "Collection error", lv_obj_get_style_text_font(m->value[0], 0), 0, 0, lv_obj_get_width(m->value[0]), LV_TEXT_FLAG_NONE);
-    assert(size.y <= lv_obj_get_height(m->value[0]));
+    assert(!strcmp(lv_label_get_text(m->value), "Collection error"));
+    assert(lv_label_get_long_mode(m->value) == LV_LABEL_LONG_WRAP);
+    lv_text_get_size(&size, "Collection error", lv_obj_get_style_text_font(m->value, 0), 0, 0, lv_obj_get_width(m->value), LV_TEXT_FLAG_NONE);
+    assert(size.y <= lv_obj_get_height(m->value));
     curio_app.core.hosts[0].sources[0].status = CURIO_SOURCE_OK;
     curio_app.core.hosts[0].sources[0].metrics[0].value = 123456789;
     refresh(NULL);
-    assert(lv_label_get_long_mode(m->value[0]) == LV_LABEL_LONG_SCROLL_CIRCULAR);
-    assert(strstr(lv_label_get_text(m->value[0]), "123456789"));
+    assert(lv_label_get_long_mode(m->value) == LV_LABEL_LONG_SCROLL_CIRCULAR);
+    assert(strstr(lv_label_get_text(m->value), "123456789"));
+    curio_widget_config_free(&p->widgets[1]);
+    curio_widget_config_free(&p->widgets[2]);
     p->widget_count = CURIO_LAYOUT_MAX_WIDGETS;
     for (size_t i = 0; i < p->widget_count; i++) {
-        p->widgets[i] = p->widgets[0];
+        if (i) assert(curio_widget_config_clone(&p->widgets[i], &p->widgets[0]));
         snprintf(p->widgets[i].id, sizeof(p->widgets[i].id), "metric-%zu", i);
         p->widgets[i].col = i % CURIO_LAYOUT_COLUMNS;
         p->widgets[i].row = i / CURIO_LAYOUT_COLUMNS;
@@ -1052,7 +1090,7 @@ static void grid_checks(void)
     refresh(NULL);
     assert(widget_count == 8 && curio_ui_widget_count() == 8);
     unsigned children = lv_obj_get_child_count(lv_screen_active());
-    p->widget_count = 0;
+    curio_page_free(p);
     curio_app.layout.revision++;
     refresh(NULL);
     assert(!widget_count && !curio_ui_widget_count());
@@ -1060,6 +1098,7 @@ static void grid_checks(void)
     unsigned allocations = config_allocations;
     refresh(NULL);
     assert(config_allocations == allocations && !widget_count);
+    curio_widget_config_free(&agents);
     puts("Grid: dynamic rows, resize, independent instances, mixed settings, compact values, status and empty page passed");
 }
 static void status_widget_checks(void)
@@ -1070,12 +1109,12 @@ static void status_widget_checks(void)
     assert(curio_core_apply_json(&curio_app.core, json, strlen(json), now) == CURIO_OK);
     curio_page_config_t *p = &curio_app.layout.pages[0];
     p->widget_count = 2;
-    p->widgets[0] = (curio_widget_config_t){.type = CURIO_WIDGET_STATUS, .cols = 1, .rows = 1};
+    p->widgets[0] = fixture_widget(&curio_widget_status, 1, 1);
     strcpy(p->widgets[0].id, "small-status");
     strcpy(p->widgets[0].title, "API");
-    strcpy(p->widgets[0].host_id, "status-host");
-    strcpy(p->widgets[0].source_id, "service.api");
-    p->widgets[1] = p->widgets[0];
+    strcpy(((curio_status_config_t *)p->widgets[0].options)->host_id, "status-host");
+    strcpy(((curio_status_config_t *)p->widgets[0].options)->source_id, "service.api");
+    assert(curio_widget_config_clone(&p->widgets[1], &p->widgets[0]));
     strcpy(p->widgets[1].id, "large-status");
     p->widgets[1].col = 1;
     p->widgets[1].cols = p->widgets[1].rows = 2;
@@ -1083,7 +1122,7 @@ static void status_widget_checks(void)
     refresh(NULL);
     lv_obj_update_layout(lv_screen_active());
     assert(curio_ui_widget_count() == 2);
-    status_payload_t *small = widgets[0]->data.status, *large = widgets[1]->data.status;
+    status_payload_t *small = ((status_payload_t *)widgets[0]->data), *large = ((status_payload_t *)widgets[1]->data);
     assert(!small->detail && large->detail);
     assert(!strcmp(lv_label_get_text(small->value), "Online"));
     assert(!strcmp(lv_label_get_text(large->detail), "HTTP 200"));
@@ -1108,11 +1147,11 @@ static void status_widget_checks(void)
     refresh(NULL);
     assert(!strcmp(lv_label_get_text(small->value), "Offline"));
     h->last_report_ms = now;
-    strcpy(widgets[0]->config.source_id, "future.source");
+    strcpy(((curio_status_config_t *)widgets[0]->config.options)->source_id, "future.source");
     refresh(NULL);
     assert(!strcmp(lv_label_get_text(small->value), "Not reported"));
     unsigned children = lv_obj_get_child_count(lv_screen_active());
-    p->widget_count = 0;
+    curio_page_free(p);
     curio_app.layout.revision++;
     refresh(NULL);
     assert(!curio_ui_widget_count() && lv_obj_get_child_count(lv_screen_active()) == children - 2);
@@ -1122,9 +1161,11 @@ static void clock_widget_checks(void)
 {
     curio_page_config_t *p = &curio_app.layout.pages[0];
     p->widget_count = 2;
-    p->widgets[0] = (curio_widget_config_t){.type = CURIO_WIDGET_CLOCK, .cols = 1, .rows = 1, .seconds = true, .utc_offset_minutes = 480};
+    p->widgets[0] = fixture_widget(&curio_widget_clock, 1, 1);
+    ((curio_clock_config_t *)p->widgets[0].options)->seconds = true;
+    ((curio_clock_config_t *)p->widgets[0].options)->utc_offset_minutes = 480;
     strcpy(p->widgets[0].id, "clock-small");
-    p->widgets[1] = p->widgets[0];
+    assert(curio_widget_config_clone(&p->widgets[1], &p->widgets[0]));
     strcpy(p->widgets[1].id, "clock-large");
     p->widgets[1].col = 1;
     p->widgets[1].cols = 3;
@@ -1133,14 +1174,14 @@ static void clock_widget_checks(void)
     curio_app.layout.revision++;
     refresh(NULL);
     lv_obj_update_layout(lv_screen_active());
-    clock_payload_t *small = widgets[0]->data.clock, *large = widgets[1]->data.clock;
+    clock_payload_t *small = ((clock_payload_t *)widgets[0]->data), *large = ((clock_payload_t *)widgets[1]->data);
     assert(!small->date && large->date);
     assert(!strcmp(lv_label_get_text(lv_obj_get_child(widgets[0]->box, 0)), "Time"));
     assert(!strcmp(lv_label_get_text(lv_obj_get_child(widgets[1]->box, 0)), "Time (UTC+8)"));
     assert(!strcmp(lv_label_get_text(small->time), "00:00:00"));
     assert(!strcmp(lv_label_get_text(large->date), "2025-01-01"));
     for (size_t i = 0; i < widget_count; i++) {
-        lv_obj_t *time = widgets[i]->data.clock->time;
+        lv_obj_t *time = ((clock_payload_t *)widgets[i]->data)->time;
         lv_point_t size;
         lv_text_get_size(&size, lv_label_get_text(time), lv_obj_get_style_text_font(time, 0), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
         assert(size.x <= lv_obj_get_width(time));
@@ -1151,8 +1192,8 @@ static void clock_widget_checks(void)
     clock_now++;
     refresh(NULL);
     assert(!strcmp(lv_label_get_text(small->time), "00:00:01"));
-    widgets[1]->config.utc_offset_minutes = -60;
-    widgets[1]->config.seconds = false;
+    ((curio_clock_config_t *)widgets[1]->config.options)->utc_offset_minutes = -60;
+    ((curio_clock_config_t *)widgets[1]->config.options)->seconds = false;
     refresh(NULL);
     assert(!strcmp(lv_label_get_text(large->time), "15:00"));
     assert(!strcmp(lv_label_get_text(large->date), "2024-12-31"));
@@ -1164,7 +1205,7 @@ static void clock_widget_checks(void)
     const int offsets[] = {0, -30, -210, 345};
     const char *titles[] = {"Time (UTC)", "Time (UTC-0:30)", "Time (UTC-3:30)", "Time (UTC+5:45)"};
     for (size_t i = 0; i < sizeof(offsets) / sizeof(*offsets); i++) {
-        p->widgets[1].utc_offset_minutes = offsets[i];
+        ((curio_clock_config_t *)p->widgets[1].options)->utc_offset_minutes = offsets[i];
         curio_app.layout.revision++;
         refresh(NULL);
         assert(!strcmp(lv_label_get_text(lv_obj_get_child(widgets[1]->box, 0)), titles[i]));
@@ -1174,7 +1215,7 @@ static void clock_widget_checks(void)
     refresh(NULL);
     assert(!strcmp(lv_label_get_text(lv_obj_get_child(widgets[1]->box, 0)), "Office"));
     unsigned children = lv_obj_get_child_count(lv_screen_active());
-    p->widget_count = 0;
+    curio_page_free(p);
     curio_app.layout.revision++;
     refresh(NULL);
     assert(!curio_ui_widget_count() && lv_obj_get_child_count(lv_screen_active()) == children - 2);
@@ -1210,11 +1251,11 @@ int main(void)
     lv_obj_update_layout(lv_screen_active());
     setup_checks();
     for (size_t i = 0; i < 3; i++)
-        lv_obj_add_event_cb(widgets[0]->data.agents->filters[i], count_click, LV_EVENT_CLICKED,
+        lv_obj_add_event_cb(((agents_payload_t *)widgets[0]->data)->filters[i], count_click, LV_EVENT_CLICKED,
                             NULL);
     step(400, 155, true);
     step(400, 155, false);
-    assert(widgets[0]->filter == CURIO_FILTER_WORKING);
+    assert(((agents_payload_t *)widgets[0]->data)->filter == CURIO_FILTER_WORKING);
     assert(clicks == 1);
     step(80, 155, true);
     step(80, 155, false);
@@ -1250,8 +1291,8 @@ int main(void)
     for (int i = 7; i >= 0; i--)
         step(250, 155 + i * 12, true);
     step(250, 155, false);
-    printf("vertical return %s filter=%d clicks=%u\n", lv_label_get_text(widgets[0]->data.agents->footer),
-           widgets[0]->filter, clicks);
+    printf("vertical return %s filter=%d clicks=%u\n", lv_label_get_text(((agents_payload_t *)widgets[0]->data)->footer),
+           ((agents_payload_t *)widgets[0]->data)->filter, clicks);
     check(1, CURIO_FILTER_ALL);
     assert(clicks == 2);
     puts("Real LVGL pointer gesture checks passed (including click suppression and positive tap "
@@ -1267,5 +1308,7 @@ int main(void)
     grid_checks();
     status_widget_checks();
     clock_widget_checks();
+    curio_layout_free(&curio_app.layout);
+    curio_core_destroy(&curio_app.core);
     return 0;
 }

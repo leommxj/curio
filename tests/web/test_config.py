@@ -2,6 +2,8 @@
 import functools
 import http.server
 import json
+import importlib.util
+import subprocess
 from pathlib import Path
 import threading
 import unittest
@@ -61,6 +63,16 @@ alerts:
 
 
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        if self.path in ("/app.js", "/style.css"):
+            asset = WEB.parents[2] / "build/modules" / self.path[1:]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript" if self.path.endswith(".js") else "text/css")
+            self.end_headers()
+            self.wfile.write(asset.read_bytes())
+            return
+        super().do_GET()
+
     def log_message(self, *_):
         pass
 
@@ -68,6 +80,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
 class ConfigBrowserTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        subprocess.run(["python3", "scripts/modules.py"], cwd=WEB.parents[2], check=True)
         cls.server = http.server.ThreadingHTTPServer(
             ("127.0.0.1", 0), functools.partial(QuietHandler, directory=str(WEB)))
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
@@ -288,6 +301,170 @@ class ConfigBrowserTest(unittest.TestCase):
         self.tab("device")
         self.assertEqual(self.page.locator("#brightness").input_value(), "24")
 
+    def test_module_cases_match_native_config(self):
+        root = WEB.parents[2]
+        spec = importlib.util.spec_from_file_location("curio_dev_hub", root / "scripts/dev/hub.py")
+        hub = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hub)
+        core = hub.Core()
+        registry = json.loads((root / "firmware/modules/registry.json").read_text())
+        try:
+            for category, names in registry.items():
+                for name in names:
+                    path = root / "firmware/modules" / category / name / "cases.json"
+                    cases = json.loads(path.read_text())
+                    self.assertTrue(cases, str(path))
+                    for case in cases:
+                        with self.subTest(module=f"{category}/{name}", case=case["name"]):
+                            source = self.page.evaluate("""([fixture, category, name, options]) => {
+                                const c = jsyaml.load(fixture);
+                                c.screen.pages[0].widgets = [];
+                                c.alerts.rules = [];
+                                if (category === "widgets") {
+                                    c.screen.pages[0].widgets = [{type: name, at: [0, 0],
+                                        size: widgetTypes[name].minimum, ...options}];
+                                } else c.alerts.rules = [{type: name, ...options}];
+                                return jsyaml.dump(c);
+                            }""", [FIXTURE, category, name, case["options"]])
+                            browser = self.page.evaluate("""([source, category, name]) => {
+                                try {
+                                    const c = parseConfig(source), module = (category === "widgets" ? widgetTypes : alertTypes)[name];
+                                    const item = category === "widgets" ? c.screen.pages[0].widgets[0] : c.alerts.rules[0];
+                                    const normalized = {...module.defaults(), ...item};
+                                    return {valid: true, options: Object.fromEntries(Object.keys(module.types)
+                                        .filter(key => normalized[key] !== undefined).map(key => [key, normalized[key]]))};
+                                } catch (error) {return {valid: false, error: error.message};}
+                            }""", [source, category, name])
+                            try:
+                                canonical = core.config_yaml(source.encode()).decode()
+                                native_valid = True
+                            except ValueError:
+                                native_valid = False
+                            self.assertEqual(browser["valid"], case["valid"], browser)
+                            self.assertEqual(native_valid, case["valid"])
+                            if not native_valid:
+                                continue
+                            native = self.page.evaluate("""([source, category, name]) => {
+                                const c = parseConfig(source), module = (category === "widgets" ? widgetTypes : alertTypes)[name];
+                                const item = category === "widgets" ? c.screen.pages[0].widgets[0] : c.alerts.rules[0];
+                                const normalized = {...module.defaults(), ...item};
+                                return Object.fromEntries(Object.keys(module.types).filter(key => normalized[key] !== undefined)
+                                    .map(key => [key, normalized[key]]));
+                            }""", [canonical, category, name])
+                            self.assertEqual(browser["options"], native)
+                            for key, expected in case.get("expected", {}).items():
+                                self.assertEqual(browser["options"].get(key), expected)
+        finally:
+            core.close()
+
+    def test_metric_omitted_unit_preserves_reported_unit(self):
+        widget = self.metric("value", [0, 0])
+        del widget["unit"]
+        state = {"hosts": [{"host_id": "workstation", "sources": {
+            "system.cpu": {"kind": "metrics", "status": "ok", "metrics": {
+                "usage_pct": {"value": 42, "unit": "count", "age_ms": 0}}}}}]}
+        self.load_widgets([widget], state)
+        self.assertEqual(self.widgets()[0]["unit"], "")
+        self.assertEqual(self.page.locator(".metric-value").inner_text(), "42")
+        self.page.locator('[data-field="title"]').fill("Count")
+        self.page.locator('[data-field="title"]').dispatch_event("change")
+        self.page.locator("#save").click()
+        self.page.wait_for_function("!displayDirty")
+        self.assertEqual(self.config()["screen"]["pages"][0]["widgets"][0]["unit"], "")
+
+    def test_missing_module_required_fields_preserve_raw_draft(self):
+        cases = [
+            "delete c.screen.pages[0].widgets[1].host",
+            "delete c.screen.pages[0].widgets[1].source",
+            "delete c.screen.pages[0].widgets[1].key",
+            "delete c.alerts.rules[1].source",
+            "delete c.alerts.rules[1].threshold",
+            "delete c.alerts.rules[1].recover",
+        ]
+        self.tab("config")
+        for mutation in cases:
+            draft = self.page.evaluate("""([source, mutation]) => {
+                const c = jsyaml.load(source); eval(mutation); return jsyaml.dump(c);
+            }""", [FIXTURE, mutation])
+            self.page.locator("#yaml-editor").fill(draft)
+            self.tab("screen")
+            self.assertTrue(self.page.locator("#yaml-editor").is_visible())
+            self.assertEqual(self.page.locator("#yaml-editor").input_value(), draft)
+            self.assertTrue(self.page.locator("#status").inner_text())
+
+    def test_module_scalar_schemas_and_hostless_alert_are_independent(self):
+        self.page.evaluate("""() => {
+            widgetTypes.typed = {
+                label: "Typed", minimum: [1, 1], fields: ["source"], types: {source: "number"},
+                defaults: () => ({title: "Typed"}), validate() {}, editor: () => "",
+                classes: () => "typed-card", preview: w => String(w.source),
+            };
+            alertTypes.hostless = {
+                label: "Hostless", fields: ["source"], types: {source: "boolean"},
+                defaults: () => ({}), validate() {}, editor: () => "", summary: r => String(r.source),
+            };
+        }""")
+        draft = self.page.evaluate("""source => {
+            const c = jsyaml.load(source);
+            c.screen.pages[0].widgets = [{type: "typed", at: [0, 0], size: [1, 1], source: 7},
+                {...c.screen.pages[0].widgets[1], at: [1, 0]}];
+            c.alerts.rules = [{type: "hostless", source: true}];
+            return jsyaml.dump(c);
+        }""", FIXTURE)
+        self.tab("config")
+        self.page.locator("#yaml-editor").fill(draft)
+        self.tab("screen")
+        self.assertEqual(self.page.locator(".typed-card").inner_text(), "7")
+        self.page.locator("#save").click()
+        self.page.wait_for_function("!yamlDirty")
+        self.tab("alerts")
+        self.page.locator("#save-alerts").click()
+        self.page.wait_for_function("!alertsDirty")
+        self.assertNotIn("host", self.config()["alerts"]["rules"][0])
+        self.tab("config")
+        invalid = draft.replace("source: 7", "source: invalid")
+        self.page.locator("#yaml-editor").fill(invalid)
+        self.tab("screen")
+        self.assertTrue(self.page.locator("#yaml-editor").is_visible())
+        self.assertIn("source", self.page.locator("#status").inner_text())
+        self.assertEqual(self.page.locator("#yaml-editor").input_value(), invalid)
+
+    def test_registered_widget_uses_common_editor_and_yaml_flow(self):
+        self.load_widgets([])
+        self.page.evaluate("""() => {
+            widgetTypes.note = {
+                label: "Note", minimum: [1, 1], fields: ["text"], types: {text: "string"},
+                defaults: () => ({title: "Note", text: "hello"}),
+                validate(w, check) {check(w.text, "Text", 48);},
+                editor(w) {return field("Text", "text", w.text);},
+                classes: () => "note-card", preview: w => esc(w.text),
+            };
+            render();
+        }""")
+        self.page.locator("#new-type").select_option("note")
+        self.page.locator("#add-widget").click()
+        self.page.locator('[data-field="text"]').fill("module text")
+        self.page.locator('[data-field="text"]').dispatch_event("change")
+        self.assertEqual(self.page.locator(".note-card").inner_text(), "module text")
+        self.page.locator("#save").click()
+        self.page.wait_for_function("!displayDirty")
+        saved = self.config()["screen"]["pages"][0]["widgets"][0]
+        self.assertEqual((saved["type"], saved["text"]), ("note", "module text"))
+        self.page.locator("#reload").click()
+        self.page.wait_for_function("!document.querySelector('main').inert")
+        self.assertEqual(self.page.locator(".note-card").inner_text(), "module text")
+
+    def test_agent_done_custom_source_roundtrip(self):
+        self.tab("alerts")
+        self.page.locator(".alert-rule details").first.locator("summary").click()
+        source = self.page.locator('[data-alert-field="source"]').first
+        source.fill("team.agents")
+        source.dispatch_event("change")
+        self.page.locator("#save-alerts").click()
+        self.page.wait_for_function("!alertsDirty")
+        self.assertEqual(self.config()["alerts"]["rules"][0]["source"], "team.agents")
+        self.assertIn("team.agents", self.page.locator(".alert-rule").first.inner_text())
+
     def test_vibration_controls_yaml_and_type_changes(self):
         self.tab("alerts")
         strength = self.page.locator('[data-alert-field="vibration_strength"]')
@@ -308,7 +485,7 @@ class ConfigBrowserTest(unittest.TestCase):
         self.assertEqual(document["alerts"]["vibration_strength"], 0)
         self.assertTrue(document["alerts"]["rules"][0]["vibrate"])
         self.assertFalse(document["alerts"]["rules"][0]["sound"])
-        self.assertNotIn("vibrate", document["alerts"]["rules"][1])
+        self.assertFalse(document["alerts"]["rules"][1]["vibrate"])
         self.tab("config")
         source = self.page.locator("#yaml-editor").input_value().replace("vibration_strength: 0", "vibration_strength: 83")
         self.page.locator("#yaml-editor").fill(source)
@@ -333,7 +510,7 @@ class ConfigBrowserTest(unittest.TestCase):
         document = self.config()
         self.assertTrue(document["alerts"]["flash_enabled"])
         self.assertTrue(document["alerts"]["rules"][0]["flash"])
-        self.assertNotIn("flash", document["alerts"]["rules"][1])
+        self.assertFalse(document["alerts"]["rules"][1]["flash"])
         self.page.set_viewport_size({"width": 375, "height": 812})
         self.assertLessEqual(self.page.evaluate("document.documentElement.scrollWidth"), 375)
         self.tab("config")
@@ -478,7 +655,7 @@ class ConfigBrowserTest(unittest.TestCase):
             self.assertEqual(self.page.evaluate("([v,u]) => formatMetric(v,u)", [value, unit]), expected)
         self.assertEqual(self.page.evaluate("formatMetric(Infinity, 'number')"), "--")
         self.page.evaluate("""() => { state = {hosts:[{host_id:'h',sources:{s:{kind:'metrics',status:'ok',max_age_ms:60000,metrics:{x:{value:5,unit:'count',age_ms:30000}}}}}]}; }""")
-        binding = {"host_id": "h", "source_id": "s", "key": "x"}
+        binding = {"host": "h", "source": "s", "key": "x"}
         self.assertEqual(self.page.evaluate("b => resolve(b).text", binding), "5")
         self.page.evaluate("state.hosts[0].sources.s.max_age_ms = 20000")
         self.assertEqual(self.page.evaluate("b => resolve(b).text", binding), "Stale")
@@ -507,7 +684,7 @@ class ConfigBrowserTest(unittest.TestCase):
         })
         self.page.wait_for_function("yamlDirty")
         self.tab("screen")
-        self.assertEqual(self.widgets()[0]["source_id"], "service.http")
+        self.assertEqual(self.widgets()[0]["source"], "service.http")
         for mutation, expected in [("s.status='error'", "Collection error"),
                                    ("s.status='ok';s.sample_age_ms=60001", "Stale"),
                                    ("delete state.hosts[0].sources['service.http']", "Not reported")]:
@@ -553,8 +730,8 @@ class ConfigBrowserTest(unittest.TestCase):
         self.assertIn("10 agents", bottom.locator(".agent-footer").inner_text())
         self.assertFalse(self.page.evaluate("dirty()"))
         self.assertEqual([w["filter"] for w in self.widgets()], ["all", "all"])
-        self.page.evaluate("agentPreview(page().widgets[1]).due = 0")
-        self.page.wait_for_function("agentPreview(page().widgets[1]).page === 1")
+        self.page.evaluate("widgetTypes.agents.view(page().widgets[1]).due = 0")
+        self.page.wait_for_function("widgetTypes.agents.view(page().widgets[1]).page === 1")
         self.assertIn("1 / 2", top.locator(".agent-footer").inner_text())
         self.assertIn("2 / 5", bottom.locator(".agent-footer").inner_text())
         for card in (top, bottom):
@@ -575,12 +752,13 @@ class ConfigBrowserTest(unittest.TestCase):
         self.assertIn("没有可用位置", self.page.locator("#status").inner_text())
         self.assertFalse(self.page.evaluate("dirty()"))
         self.page.locator("[data-remove]").click()
+        self.page.locator("#new-type").select_option("metric")
         self.page.locator("#add-widget").click()
-        self.page.locator('[data-field="binding.host_id"]').fill("not-reported")
-        self.page.locator('[data-field="binding.host_id"]').dispatch_event("change")
+        self.page.locator('[data-field="host"]').fill("not-reported")
+        self.page.locator('[data-field="host"]').dispatch_event("change")
         self.page.locator("#save").click()
         self.page.wait_for_function("!displayDirty")
-        self.assertEqual(self.widgets()[0]["binding"]["host_id"], "not-reported")
+        self.assertEqual(self.widgets()[0]["host"], "not-reported")
         for _ in range(3):
             self.page.locator("#add-page").click()
         self.assertTrue(self.page.locator("#add-page").is_disabled())
@@ -659,12 +837,13 @@ class ConfigBrowserTest(unittest.TestCase):
         clock = self.widgets()[0]
         self.assertEqual((clock["title"], clock["size"]), ("", [1, 1]))
         self.assertEqual(self.page.locator('[data-field="title"]').get_attribute("placeholder"), "自动")
-        self.assertEqual(self.page.locator('[data-field="host_id"], [data-metric-select]').count(), 0)
+        self.assertEqual(self.page.locator('[data-field="host"], [data-metric-select]').count(), 0)
         self.page.locator("#save").click()
         self.page.wait_for_function("!displayDirty")
         saved = self.config()["screen"]["pages"][0]["widgets"][0]
-        for key in ("host", "source", "utc_offset", "seconds", "title"):
+        for key in ("host", "source"):
             self.assertNotIn(key, saved)
+        self.assertEqual((saved["utc_offset"], saved["seconds"], saved["title"]), ("+00:00", False, ""))
         offset = self.page.locator('[data-field="utc_offset"]')
         offset.fill("+05:45")
         offset.dispatch_event("change")
@@ -744,8 +923,8 @@ class ConfigBrowserTest(unittest.TestCase):
         self.assertEqual(self.page.locator(".clock-title").inner_text(), "Time")
         for offset, expected in (("+00:00", "Time (UTC)"), ("+08:00", "Time (UTC+8)"),
                                  ("-00:30", "Time (UTC-0:30)"), ("-03:30", "Time (UTC-3:30)")):
-            self.assertEqual(self.page.evaluate("offset => clockTitle({title:'', utc_offset:offset}, 224)", offset), expected)
-        self.assertEqual(self.page.evaluate("clockParts({utc_offset:'-12:00',seconds:false}, Date.parse('2026-01-01T01:00:00Z'))"),
+            self.assertEqual(self.page.evaluate("offset => widgetTypes.clock.title({title:'', utc_offset:offset}, 224)", offset), expected)
+        self.assertEqual(self.page.evaluate("widgetTypes.clock.parts({utc_offset:'-12:00',seconds:false}, Date.parse('2026-01-01T01:00:00Z'))"),
                          {"time": "13:00", "date": "2025-12-31"})
         self.tab("config")
         original = self.page.locator("#yaml-editor").input_value()

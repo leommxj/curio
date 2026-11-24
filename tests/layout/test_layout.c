@@ -2,16 +2,38 @@
 #include <assert.h>
 #include <limits.h>
 #include <string.h>
+#include <stdlib.h>
+#include "../../firmware/modules/widgets/agents/config.h"
+#include "../../firmware/modules/widgets/metric/config.h"
+#include "../../firmware/modules/widgets/machine/config.h"
+#include "../../firmware/modules/widgets/status/config.h"
+#include "../../firmware/modules/widgets/clock/config.h"
+
 
 static curio_display_config_t config;
 
+static void reset(void)
+{
+    curio_layout_free(&config);
+    assert(curio_layout_default(&config));
+}
+
+static void type(curio_widget_config_t *w, const char *id)
+{
+    free(w->options);
+    w->type = curio_widget_type_find(id);
+    assert(w->type);
+    w->options = calloc(1, w->type->options_size);
+    assert(w->options);
+}
+
+
 static void test_default(void)
 {
-    curio_layout_default(&config);
+    reset();
     assert(curio_layout_validate(&config) == CURIO_OK);
     const curio_widget_config_t *w = &config.pages[0].widgets[0];
-    assert(w->type == CURIO_WIDGET_AGENTS && w->auto_page && w->all_hosts);
-    assert(!strcmp(w->source_id, "herdr"));
+    assert(w->type == curio_widget_type_find("agents"));
     assert(w->col == 0 && w->row == 0 && w->cols == 4 && w->rows == 6);
     curio_widget_rect_t rect = curio_widget_rect(w);
     assert(rect.x == 12 && rect.y == 60 && rect.width == 456 && rect.height == 408);
@@ -32,7 +54,7 @@ static void test_geometry(void)
 
 static void test_dimensions(void)
 {
-    curio_layout_default(&config);
+    reset();
     curio_widget_config_t *w = &config.pages[0].widgets[0];
     w->cols = w->rows = 3;
     w->col = 1;
@@ -43,8 +65,8 @@ static void test_dimensions(void)
     w->cols = 3;
     w->rows = 2;
     assert(curio_layout_validate(&config) == CURIO_INVALID);
-    w->type = CURIO_WIDGET_MACHINE;
-    strcpy(w->host_id, "one");
+    type(w, "machine");
+    strcpy(((curio_machine_config_t *)w->options)->host_id, "one");
     w->cols = w->rows = 2;
     assert(curio_layout_validate(&config) == CURIO_OK);
     w->rows = 1;
@@ -52,9 +74,10 @@ static void test_dimensions(void)
     w->rows = 2;
     w->cols = 1;
     assert(curio_layout_validate(&config) == CURIO_INVALID);
-    w->type = CURIO_WIDGET_METRIC;
-    strcpy(w->source_id, "system.cpu");
-    strcpy(w->key, "usage_pct");
+    type(w, "metric");
+    strcpy(((curio_metric_config_t *)w->options)->host_id, "one");
+    strcpy(((curio_metric_config_t *)w->options)->source_id, "system.cpu");
+    strcpy(((curio_metric_config_t *)w->options)->key, "usage_pct");
     w->cols = w->rows = 1;
     w->col = 3;
     w->row = 5;
@@ -85,21 +108,21 @@ static void test_dimensions(void)
 
 static void test_overlap_and_ids(void)
 {
-    curio_layout_default(&config);
+    reset();
     curio_page_config_t *page = &config.pages[0];
     curio_widget_config_t *agents = &page->widgets[0];
     agents->cols = agents->rows = 3;
     curio_widget_config_t *metric = &page->widgets[1];
     page->widget_count = 2;
     strcpy(metric->id, "cpu");
-    metric->type = CURIO_WIDGET_METRIC;
+    type(metric, "metric");
     metric->col = 3;
     metric->cols = 1;
     metric->rows = 6;
-    strcpy(metric->host_id, "never-seen");
-    strcpy(metric->source_id, "system.cpu");
-    strcpy(metric->key, "usage_pct");
-    strcpy(metric->unit, "percent");
+    strcpy(((curio_metric_config_t *)metric->options)->host_id, "never-seen");
+    strcpy(((curio_metric_config_t *)metric->options)->source_id, "system.cpu");
+    strcpy(((curio_metric_config_t *)metric->options)->key, "usage_pct");
+    strcpy(((curio_metric_config_t *)metric->options)->unit, "percent");
     assert(curio_layout_validate(&config) == CURIO_OK);
     metric->col = 2;
     assert(curio_layout_validate(&config) == CURIO_INVALID);
@@ -112,14 +135,14 @@ static void test_overlap_and_ids(void)
     strcpy(metric->id, "agents");
     assert(curio_layout_validate(&config) == CURIO_INVALID);
     strcpy(metric->id, "cpu");
-    strcpy(metric->host_id, "bad host");
+    strcpy(((curio_metric_config_t *)metric->options)->host_id, "bad host");
     assert(curio_layout_validate(&config) == CURIO_INVALID);
-    strcpy(metric->host_id, "never-seen");
-    strcpy(metric->unit, "bad unit");
+    strcpy(((curio_metric_config_t *)metric->options)->host_id, "never-seen");
+    strcpy(((curio_metric_config_t *)metric->options)->unit, "bad unit");
     assert(curio_layout_validate(&config) == CURIO_INVALID);
-    strcpy(metric->unit, "percent");
+    strcpy(((curio_metric_config_t *)metric->options)->unit, "percent");
     config.page_count = 2;
-    config.pages[1] = *page;
+    assert(curio_page_clone(&config.pages[1], page));
     assert(curio_layout_validate(&config) == CURIO_INVALID);
     strcpy(config.pages[1].id, "second");
     assert(curio_layout_validate(&config) == CURIO_OK);
@@ -129,28 +152,29 @@ static void test_overlap_and_ids(void)
 
 static void test_limits(void)
 {
-    curio_layout_default(&config);
+    reset();
     curio_page_config_t *page = &config.pages[0];
+    curio_widget_config_free(&page->widgets[0]);
     page->widget_count = 8;
     for (unsigned i = 0; i < 8; i++) {
         curio_widget_config_t *w = &page->widgets[i];
         memset(w, 0, sizeof(*w));
         strcpy(w->id, "metric0");
         w->id[6] += (char)i;
-        w->type = CURIO_WIDGET_METRIC;
+        type(w, "metric");
         w->col = i % 4;
         w->row = i / 4;
         w->cols = w->rows = 1;
-        strcpy(w->host_id, "one");
-        strcpy(w->source_id, "system.cpu");
-        strcpy(w->key, "usage_pct");
+        strcpy(((curio_metric_config_t *)w->options)->host_id, "one");
+        strcpy(((curio_metric_config_t *)w->options)->source_id, "system.cpu");
+        strcpy(((curio_metric_config_t *)w->options)->key, "usage_pct");
     }
     assert(curio_layout_validate(&config) == CURIO_OK);
     page->widget_count = 9;
     assert(curio_layout_validate(&config) == CURIO_INVALID);
     page->widget_count = 8;
     for (unsigned i = 1; i < 4; i++) {
-        config.pages[i] = *page;
+        assert(curio_page_clone(&config.pages[i], page));
         strcpy(config.pages[i].id, "page0");
         config.pages[i].id[4] += (char)i;
     }
@@ -158,67 +182,37 @@ static void test_limits(void)
     assert(curio_layout_validate(&config) == CURIO_OK);
     config.page_count = 5;
     assert(curio_layout_validate(&config) == CURIO_INVALID);
+    config.page_count = 4;
 }
 
-static void test_status_binding(void)
+
+
+
+static void test_clone(void)
 {
-    curio_layout_default(&config);
-    curio_widget_config_t *w = &config.pages[0].widgets[0];
-    w->type = CURIO_WIDGET_STATUS;
-    w->cols = w->rows = 1;
-    w->col = 3;
-    w->row = 5;
-    strcpy(w->host_id, "future-host");
-    strcpy(w->source_id, "service.api");
-    assert(curio_layout_validate(&config) == CURIO_OK);
-    w->source_id[0] = 0;
-    assert(curio_layout_validate(&config) == CURIO_INVALID);
-    strcpy(w->source_id, "service.api");
-    w->host_id[0] = 0;
-    assert(curio_layout_validate(&config) == CURIO_INVALID);
+    reset();
+    curio_display_config_t copy = {0};
+    assert(curio_layout_clone(&copy, &config));
+    assert(curio_layout_equal(&copy, &config));
+    assert(copy.pages[0].widgets[0].options != config.pages[0].widgets[0].options);
+    ((curio_agents_config_t *)copy.pages[0].widgets[0].options)->auto_page = false;
+    assert(!curio_layout_equal(&copy, &config));
+    assert(((curio_agents_config_t *)config.pages[0].widgets[0].options)->auto_page);
+    curio_layout_free(&copy);
 }
 
-static void test_hosts(void)
-{
-    curio_layout_default(&config);
-    curio_widget_config_t *agents = &config.pages[0].widgets[0];
-    agents->all_hosts = false;
-    agents->host_count = 2;
-    strcpy(agents->hosts[0], "one");
-    strcpy(agents->hosts[1], "two");
-    assert(curio_layout_validate(&config) == CURIO_OK);
-    strcpy(agents->hosts[1], "one");
-    assert(curio_layout_validate(&config) == CURIO_INVALID);
-    agents->host_count = 1;
-    agents->all_hosts = true;
-    assert(curio_layout_validate(&config) == CURIO_INVALID);
-}
-
-static void test_clock(void)
-{
-    curio_layout_default(&config);
-    curio_widget_config_t *w = &config.pages[0].widgets[0];
-    *w = (curio_widget_config_t){.id = "clock", .type = CURIO_WIDGET_CLOCK, .cols = 1, .rows = 1, .utc_offset_minutes = 840};
-    assert(curio_layout_validate(&config) == CURIO_OK);
-    w->utc_offset_minutes = -720;
-    assert(curio_layout_validate(&config) == CURIO_OK);
-    w->utc_offset_minutes = -721;
-    assert(curio_layout_validate(&config) == CURIO_INVALID);
-    w->utc_offset_minutes = 0;
-    strcpy(w->host_id, "one");
-    assert(curio_layout_validate(&config) == CURIO_INVALID);
-}
+void curio_widget_module_tests(void);
 
 int main(void)
 {
-    test_clock();
+    curio_widget_module_tests();
+    test_clone();
     test_default();
     test_geometry();
     test_dimensions();
     test_overlap_and_ids();
     test_limits();
-    test_status_binding();
-    test_hosts();
     assert(curio_layout_validate(NULL) == CURIO_INVALID);
+    curio_layout_free(&config);
     return 0;
 }

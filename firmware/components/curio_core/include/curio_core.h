@@ -118,7 +118,7 @@ const char *curio_source_status_name(curio_source_status_t);
 char *curio_core_catalog_json(const curio_core_t *, uint64_t);
 char *curio_core_state_v2_json(const curio_core_t *, uint64_t);
 
-/* Single owner or external lock required, including reads and returned row refs.
+/* Single owner or external lock required, including reads and returned pointers.
  * now_ms is a receiver monotonic clock. Initialize once before any other call. */
 void curio_core_init(curio_core_t *core);
 curio_result_t curio_core_apply_json(curio_core_t *core, const char *body, size_t length,

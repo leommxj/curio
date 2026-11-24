@@ -1,0 +1,4 @@
+{
+  "widgets": ["metric", "status", "clock", "machine", "agents"],
+  "alerts": ["metric_high", "agent_done", "host_offline"]
+}

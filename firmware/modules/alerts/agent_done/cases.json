@@ -1,0 +1,30 @@
+[
+  {
+    "name": "defaults",
+    "valid": true,
+    "options": {}
+  },
+  {
+    "name": "generic source",
+    "valid": true,
+    "options": {
+      "host": "h",
+      "source": "custom.agents",
+      "include_idle": false
+    }
+  },
+  {
+    "name": "invalid source",
+    "valid": false,
+    "options": {
+      "source": "invalid source"
+    }
+  },
+  {
+    "name": "idle type",
+    "valid": false,
+    "options": {
+      "include_idle": "false"
+    }
+  }
+]

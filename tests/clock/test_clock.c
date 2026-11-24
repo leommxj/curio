@@ -1,4 +1,5 @@
 #include "curio_clock.h"
+#include "format.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>

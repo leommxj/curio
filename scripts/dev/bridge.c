@@ -21,10 +21,11 @@ void curio_dev_destroy(void *core)
 
 static curio_config_t *parse_config(const char *body, size_t size)
 {
-    curio_config_t *config = malloc(sizeof(*config));
+    curio_config_t *config = calloc(1, sizeof(*config));
     config_error[0] = 0;
     if (!config) return NULL;
     if (!curio_config_parse(body, size, config, config_error, sizeof(config_error))) {
+        curio_config_free(config);
         free(config);
         return NULL;
     }
@@ -41,6 +42,7 @@ char *curio_dev_config_yaml(const char *body, size_t size)
     curio_config_t *config = parse_config(body, size);
     if (!config) return NULL;
     char *yaml = curio_config_yaml(config);
+    curio_config_free(config);
     free(config);
     return yaml;
 }
@@ -55,6 +57,7 @@ char *curio_dev_config_json(const char *body, size_t size)
         cJSON_AddStringToObject(access, "collector_token", config->access.collector_token);
     char *json = ok ? cJSON_PrintUnformatted(root) : NULL;
     cJSON_Delete(root);
+    curio_config_free(config);
     free(config);
     return json;
 }
@@ -65,13 +68,15 @@ char *curio_dev_config_token(const char *body, size_t size, const char *role, co
     if (!config) return NULL;
     char *target = !strcmp(role, "admin_token") ? config->access.admin_token : config->access.collector_token;
     size_t length = strlen(token);
-    if (length < 16 || length > 128) { free(config); return NULL; }
+    if (length < 16 || length > 128) { curio_config_free(config); free(config); return NULL; }
     for (size_t i = 0; i < length; i++) if ((unsigned char)token[i] < 33 || (unsigned char)token[i] > 126) {
+        curio_config_free(config);
         free(config);
         return NULL;
     }
     memcpy(target, token, length + 1);
     char *yaml = curio_config_yaml(config);
+    curio_config_free(config);
     free(config);
     return yaml;
 }

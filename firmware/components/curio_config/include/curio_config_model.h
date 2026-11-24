@@ -24,6 +24,10 @@ typedef struct {
     curio_network_config_t network;
     curio_tls_config_t tls;
 } curio_config_t;
+/* Initialize configurations to zero; successful parsing replaces their owned contents. */
+void curio_config_free(curio_config_t *);
+bool curio_config_clone(curio_config_t *, const curio_config_t *);
+bool curio_config_equal(const curio_config_t *, const curio_config_t *);
 bool curio_config_parse(const char *yaml, size_t size, curio_config_t *config, char *error, size_t error_size);
 /* Free the returned YAML with cJSON_free. */
 char *curio_config_yaml(const curio_config_t *config);

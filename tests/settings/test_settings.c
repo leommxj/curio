@@ -92,10 +92,12 @@ static void test_configuration(void)
     assert(curio_settings_set_auto_rotate(false) == ESP_OK);
     assert(!curio_app.device.auto_rotate && curio_app.device.rotation == 270);
     assert(save_config(config, revision) == ESP_ERR_INVALID_VERSION);
+    curio_config_free(config);
     free(config);
     config = read_config(&revision);
     config->device.auto_rotate = true;
     assert(save_config(config, revision) == ESP_OK);
+    curio_config_free(config);
     free(config);
     config = read_config(&revision);
     config->device.auto_rotate = false;
@@ -112,7 +114,7 @@ static void test_configuration(void)
     assert(curio_settings_set_volume(70) == ESP_OK);
     assert(curio_settings_set_volume(101) == ESP_ERR_INVALID_ARG);
     assert(curio_settings_set_page_auto_page("agents", false) == ESP_OK);
-    assert(!curio_app.layout.pages[0].widgets[0].auto_page);
+    assert(!curio_app.layout.pages[0].widgets[0].type->paging(curio_app.layout.pages[0].widgets[0].options));
     assert(curio_settings_set_page_auto_page("missing", true) == ESP_ERR_NOT_FOUND);
     assert(curio_settings_set_token(true, "new-admin-token-123456") == ESP_OK);
     assert(curio_settings_set_token(false, "new-collector-token-123456") == ESP_OK);
@@ -120,9 +122,10 @@ static void test_configuration(void)
     assert(curio_settings_set_token(true, "contains whitespace") == ESP_ERR_INVALID_ARG);
     assert(curio_settings_init() == ESP_OK);
     assert(curio_app.device.brightness == 42 && curio_app.device.rotation == 90);
-    assert(curio_app.alert_config.volume == 70 && !curio_app.layout.pages[0].widgets[0].auto_page);
+    assert(curio_app.alert_config.volume == 70 && !curio_app.layout.pages[0].widgets[0].type->paging(curio_app.layout.pages[0].widgets[0].options));
     assert(!strcmp(curio_app.access.admin_token, "new-admin-token-123456"));
     assert(!strcmp(curio_app.access.collector_token, "new-collector-token-123456"));
+    curio_config_free(config);
     free(config);
 }
 static void test_network_tls(void)
@@ -138,6 +141,7 @@ static void test_network_tls(void)
     unsigned prepared = tls_prepares;
     assert(save_config(config, revision) == ESP_OK && tls_prepares == prepared + 1);
     assert(!curio_app.configured);
+    curio_config_free(config);
     free(config);
     config = read_config(&revision);
     assert(!strcmp(config->network.ssid, "Studio WiFi") && !strcmp(config->tls.certificate, "supplied-cert"));
@@ -149,12 +153,14 @@ static void test_network_tls(void)
     assert(curio_settings_init() == ESP_OK && tls_prepares == prepared);
     assert(curio_app.configured);
     assert(!strcmp(curio_app.network.ssid, "Studio WiFi") && !strcmp(curio_app.tls.certificate, "supplied-cert"));
+    curio_config_free(config);
     free(config);
     config = read_config(&revision);
     assert(!strcmp(config->network.password, "password123") && !strcmp(config->tls.private_key, "supplied-key"));
     strcpy(config->network.hostname, "curio-renamed");
     memset(&config->tls, 0, sizeof(config->tls));
     assert(save_config(config, revision) == ESP_OK && tls_prepares == prepared + 1);
+    curio_config_free(config);
     free(config);
     config = read_config(&revision);
     assert(!strcmp(config->network.hostname, "curio-renamed"));
@@ -172,6 +178,7 @@ static void test_network_tls(void)
     assert(after_yaml && !strcmp(saved_yaml, after_yaml));
     free(saved_yaml);
     free(after_yaml);
+    curio_config_free(config);
     free(config);
 }
 static void test_page_paging(void)
@@ -181,35 +188,41 @@ static void test_page_paging(void)
     curio_page_config_t *page = &config->display.pages[0];
     page->widget_count = 3;
     page->widgets[0].cols = page->widgets[0].rows = 3;
-    page->widgets[0].auto_page = true;
-    page->widgets[1] = page->widgets[0];
+    page->widgets[0].type->set_paging(page->widgets[0].options,true);
+    curio_widget_config_free(&page->widgets[1]);
+    assert(curio_widget_config_clone(&page->widgets[1],&page->widgets[0]));
     strcpy(page->widgets[1].id, "second");
     page->widgets[1].row = 3;
-    page->widgets[1].auto_page = false;
-    page->widgets[2] = (curio_widget_config_t){.type = CURIO_WIDGET_METRIC, .col = 3, .cols = 1, .rows = 1};
-    strcpy(page->widgets[2].id, "metric");
-    strcpy(page->widgets[2].host_id, "h");
-    strcpy(page->widgets[2].source_id, "system.cpu");
-    strcpy(page->widgets[2].key, "usage_pct");
+    page->widgets[1].type->set_paging(page->widgets[1].options,false);
+    curio_widget_config_free(&page->widgets[2]);
+    page->widgets[2] = (curio_widget_config_t){.type = curio_widget_type_find("metric"), .col = 3, .cols = 1, .rows = 1};
+    strcpy(page->widgets[2].id,"metric");
+    page->widgets[2].options = cJSON_malloc(page->widgets[2].type->options_size);
+    cJSON *metric = cJSON_Parse("{\"host\":\"h\",\"source\":\"system.cpu\",\"key\":\"usage_pct\"}");
+    assert(metric && page->widgets[2].options && page->widgets[2].type->parse(metric,page->widgets[2].options));
+    cJSON_Delete(metric);
     assert(save_config(config, revision) == ESP_OK);
     unsigned before = commits;
     fail_write = true;
     assert(curio_settings_set_page_auto_page(page->id, true) == ESP_ERR_INVALID_STATE);
-    assert(curio_app.layout.pages[0].widgets[0].auto_page && !curio_app.layout.pages[0].widgets[1].auto_page);
+    assert(curio_app.layout.pages[0].widgets[0].type->paging(curio_app.layout.pages[0].widgets[0].options) && !curio_app.layout.pages[0].widgets[1].type->paging(curio_app.layout.pages[0].widgets[1].options));
     fail_write = false;
     assert(curio_settings_set_page_auto_page(page->id, true) == ESP_OK && commits == before + 1);
-    assert(curio_app.layout.pages[0].widgets[0].auto_page && curio_app.layout.pages[0].widgets[1].auto_page);
-    assert(!curio_app.layout.pages[0].widgets[2].auto_page);
+    assert(curio_app.layout.pages[0].widgets[0].type->paging(curio_app.layout.pages[0].widgets[0].options) && curio_app.layout.pages[0].widgets[1].type->paging(curio_app.layout.pages[0].widgets[1].options));
+    assert(!curio_app.layout.pages[0].widgets[2].type->paging || !curio_app.layout.pages[0].widgets[2].type->paging(curio_app.layout.pages[0].widgets[2].options));
     assert(curio_settings_set_page_auto_page(page->id, true) == ESP_OK && commits == before + 1);
     assert(curio_settings_set_page_auto_page(page->id, false) == ESP_OK && commits == before + 2);
-    assert(!curio_app.layout.pages[0].widgets[0].auto_page && !curio_app.layout.pages[0].widgets[1].auto_page);
+    assert(!curio_app.layout.pages[0].widgets[0].type->paging(curio_app.layout.pages[0].widgets[0].options) && !curio_app.layout.pages[0].widgets[1].type->paging(curio_app.layout.pages[0].widgets[1].options));
     assert(curio_settings_set_page_auto_page(NULL, true) == ESP_ERR_INVALID_ARG);
+    curio_config_free(config);
     free(config);
     config = read_config(&revision);
+    for (size_t i = 0; i < config->display.pages[0].widget_count; i++) curio_widget_config_free(&config->display.pages[0].widgets[i]);
     config->display.pages[0].widget_count = 0;
     assert(save_config(config, revision) == ESP_OK);
     before = commits;
     assert(curio_settings_set_page_auto_page(config->display.pages[0].id, true) == ESP_ERR_NOT_FOUND && commits == before);
+    curio_config_free(config);
     free(config);
 }
 static void test_rules_preserved(void)
@@ -218,8 +231,12 @@ static void test_rules_preserved(void)
     curio_config_t *config = read_config(&revision);
     config->alerts.rule_count = 1;
     curio_alert_rule_t *rule = &config->alerts.rules[0];
-    *rule = (curio_alert_rule_t){.type = CURIO_ALERT_AGENT_DONE, .enabled = true, .include_idle = true, .display_s = 10, .vibrate = true, .flash = true};
-    strcpy(rule->id, "finished"); strcpy(rule->host_id, "*"); strcpy(rule->source_id, "herdr");
+    *rule = (curio_alert_rule_t){.type = curio_alert_type_find("agent_done"), .enabled = true, .display_s = 10, .vibrate = true, .flash = true};
+    strcpy(rule->id,"finished");
+    rule->options = cJSON_malloc(rule->type->options_size);
+    cJSON *options = cJSON_Parse("{\"host\":\"*\",\"source\":\"herdr\",\"include_idle\":true}");
+    assert(options && rule->options && rule->type->parse(options,rule->options));
+    cJSON_Delete(options);
     assert(save_config(config, revision) == ESP_OK);
     curio_alerts_t *runtime = curio_app.alerts;
     uint32_t generation = curio_alerts_revision(runtime);
@@ -267,6 +284,7 @@ static void test_rules_preserved(void)
     assert(curio_alerts_pending(runtime) == 1 && curio_alerts_remaining_ms(runtime, 3000) == 9000);
     assert(curio_settings_set_vibration_strength(0) == ESP_OK && curio_app.alerts == runtime);
     assert(curio_settings_set_vibration_strength(88) == ESP_OK && curio_app.alerts == runtime);
+    curio_config_free(config);
     free(config);
     config = read_config(&revision);
     assert(config->alerts.vibration_strength == 88 && config->alerts.rules[0].vibrate && !config->alerts.rules[0].sound);
@@ -274,6 +292,7 @@ static void test_rules_preserved(void)
     config->alerts.flash_enabled = false;
     config->alerts.volume = 60;
     assert(save_config(config, revision) == ESP_OK && curio_app.alerts == runtime);
+    curio_config_free(config);
     free(config);
     assert(!curio_app.alert_config.flash_enabled && curio_alerts_current(runtime, 2000)->flash);
     curio_alerts_dismiss(runtime, 2000);
@@ -308,6 +327,7 @@ static void test_concurrent_saves(void)
     assert((saves[0].result == ESP_OK && saves[1].result == ESP_ERR_INVALID_VERSION) ||
            (saves[1].result == ESP_OK && saves[0].result == ESP_ERR_INVALID_VERSION));
     for (unsigned i = 0; i < 2; i++) cJSON_free(saves[i].yaml);
+    curio_config_free(config);
     free(config);
 }
 int main(void)
@@ -318,6 +338,8 @@ int main(void)
     test_rules_preserved();
     test_concurrent_saves();
     curio_alerts_destroy(curio_app.alerts);
+    curio_alert_config_free(&curio_app.alert_config);
+    curio_layout_free(&curio_app.layout);
     cJSON_free(document);
     puts("YAML settings: persistence, failures, tokens, local edits, runtime preservation and concurrent saves passed");
 }

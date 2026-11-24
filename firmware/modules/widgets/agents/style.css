@@ -1,0 +1,109 @@
+.agent-card {
+  padding: 0;
+  touch-action: none;
+  user-select: none;
+}
+.filters {
+  display: flex;
+  height: 44px;
+  gap: 4px;
+  padding: 0 4px;
+}
+.filters button {
+  flex: 1;
+}
+.agent-row {
+  height: 47px;
+  margin-top: 0;
+  padding: 2px 10px;
+  background: #1c2b3b;
+}
+.agent-name {
+  display: flex;
+  justify-content: space-between;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-name span {
+  flex: 0 0 auto;
+  max-width: 48%;
+  text-align: right;
+  margin-left: 8px;
+  font-size: 18px;
+  color: #6ed6bd;
+}
+.agent-detail {
+  font-size: 14px;
+  color: #94a6bc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-footer {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 3px;
+  height: 25px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #94a6bc;
+}
+#screen .agent-footer button {
+  min-height: 24px;
+  height: 24px;
+  padding: 0 8px;
+}
+.agent-summary {
+  color: #d0b381;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 25px;
+  height: 16px;
+  font-size: 12px;
+}
+.agent-summary:empty {
+  display: none;
+}
+.agent-name strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-name strong {
+  font-size: 18px;
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-name .state-blocked {
+  color: #e6bb7d;
+}
+.agent-name .state-idle,
+.agent-name .state-done {
+  color: #9bacbd;
+}
+.catalog-agent {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+}
+.catalog-agent strong {
+  font-weight: 500;
+}
+.catalog-agent span {
+  color: #78876c;
+  font-size: 12px;
+}
+.catalog-agent small {
+  grid-column: 1 / -1;
+}

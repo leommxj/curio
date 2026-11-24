@@ -1,4 +1,7 @@
 "use strict";
+function sameMetric(a, b) {
+  return ["host", "source", "key"].every((key) => a[key] === b[key]);
+}
 const $ = (s) => document.querySelector(s),
   esc = (v) =>
     String(v ?? "").replace(
@@ -33,10 +36,8 @@ let token = sessionStorage.getItem("curio-token") || "",
   message = "",
   pollError = "",
   gesture = null;
-const previewAgents = new Map(),
-  layoutHistory = [];
-const minimum = (type) =>
-  ({ metric: [1, 1], status: [1, 1], clock: [1, 1], machine: [2, 2], agents: [3, 3] })[type];
+const layoutHistory = [];
+const minimum = (type) => widgetTypes[type]?.minimum;
 const clone = (value) => structuredClone(value);
 function validRect(w) {
   const min = minimum(w.type);
@@ -82,16 +83,6 @@ function pixelRect(w) {
       Math.floor((w.at[1] * 416) / 6) -
       8,
   };
-}
-function agentPreview(w) {
-  const key = `${page().id}/${w.id}`;
-  if (!previewAgents.has(key))
-    previewAgents.set(key, {
-      page: 0,
-      filter: w.filter,
-      due: performance.now() + 10000,
-    });
-  return previewAgents.get(key);
 }
 function rememberLayout() {
   layoutHistory.push({
@@ -221,8 +212,10 @@ const health = (h, s) =>
             : "";
 function formatMetric(value, unit) {
   if (!Number.isFinite(value)) return "--";
-  const rounded = (n, scale) => Math.sign(n) * Math.round(Math.abs(n) * scale) / scale;
-  const decimal = (n) => String(Number((Math.abs(n) < 1e14 ? rounded(n, 10) : n).toFixed(1)));
+  const rounded = (n, scale) =>
+    (Math.sign(n) * Math.round(Math.abs(n) * scale)) / scale;
+  const decimal = (n) =>
+    String(Number((Math.abs(n) < 1e14 ? rounded(n, 10) : n).toFixed(1)));
   const scaled = (base, labels) => {
     let i = 0;
     while (Math.abs(value) >= base && i < labels.length - 1) {
@@ -232,27 +225,39 @@ function formatMetric(value, unit) {
     return `${decimal(value)} ${labels[i]}`;
   };
   if (unit === "bytes" || unit === "bytes_per_second")
-    return scaled(1024, ["B", "KiB", "MiB", "GiB", "TiB", "PiB"].map((u) => u + (unit === "bytes_per_second" ? "/s" : "")));
+    return scaled(
+      1024,
+      ["B", "KiB", "MiB", "GiB", "TiB", "PiB"].map(
+        (u) => u + (unit === "bytes_per_second" ? "/s" : ""),
+      ),
+    );
   if (unit === "watts") return scaled(1000, ["W", "kW", "MW"]);
   if (unit === "hertz") return scaled(1000, ["Hz", "kHz", "MHz", "GHz"]);
   if (unit === "seconds" || unit === "milliseconds") {
     if (unit === "milliseconds") value /= 1000;
-    if (value !== 0 && Math.abs(value) < 1) return `${decimal(value * 1000)} ms`;
+    if (value !== 0 && Math.abs(value) < 1)
+      return `${decimal(value * 1000)} ms`;
     let label = "s";
-    for (const [base, next] of [[60, "min"], [60, "h"], [24, "d"]]) {
+    for (const [base, next] of [
+      [60, "min"],
+      [60, "h"],
+      [24, "d"],
+    ]) {
       if (Math.abs(value) < base) break;
       value /= base;
       label = next;
     }
     return `${decimal(value)} ${label}`;
   }
-  if (unit === "count") return String(Math.abs(value) < 1e14 ? rounded(value, 1) : value);
-  return `${decimal(value)}${unit === "percent" ? "%" : unit === "number" || !unit ? "" : ` ${{celsius: "C"}[unit] || unit}`}`;
+  if (unit === "count")
+    return String(Math.abs(value) < 1e14 ? rounded(value, 1) : value);
+  return `${decimal(value)}${unit === "percent" ? "%" : unit === "number" || !unit ? "" : ` ${{ celsius: "C" }[unit] || unit}`}`;
 }
 function resolve(b, unit) {
-  const h = host(b.host_id);
+  const h = host(b.host);
   if (!h) return { text: "Waiting" };
-  const s = source(h, b.source_id), problem = health(h, s);
+  const s = source(h, b.source),
+    problem = health(h, s);
   if (problem) return { text: problem };
   if (!s) return { text: "Not reported" };
   if (s.kind !== "metrics") return { text: "Type mismatch" };
@@ -260,98 +265,48 @@ function resolve(b, unit) {
   if (!m) return { text: "Not reported" };
   if (unit && m.unit !== unit) return { text: "Type mismatch" };
   if (m.age_ms > (s.max_age_ms ?? 10000)) return { text: "Stale" };
-  if (typeof m.value !== "number" || !Number.isFinite(m.value)) return { text: "Unavailable" };
+  if (typeof m.value !== "number" || !Number.isFinite(m.value))
+    return { text: "Unavailable" };
   return { value: m.value, text: formatMetric(m.value, m.unit) };
 }
-function resolveStatus(w) {
-  const h = host(w.host_id);
-  if (!h) return { text: "Waiting" };
-  const s = source(h, w.source_id), problem = health(h, s);
-  if (problem) return { text: problem };
-  if (!s) return { text: "Not reported" };
-  if (s.kind !== "status") return { text: "Type mismatch" };
-  if (s.sample_age_ms > (s.max_age_ms ?? 10000)) return { text: "Stale" };
-  return s.state || { text: "Not reported" };
-}
-function clockOffset(value) {
-  if (typeof value !== "string" || !/^[+-]\d{2}:[0-5]\d$/.test(value))
-    throw Error("UTC 偏移须为 ±HH:MM（-12:00 至 +14:00）");
-  const minutes = (Number(value.slice(1, 3)) * 60 + Number(value.slice(4))) * (value[0] === "-" ? -1 : 1);
-  if (minutes < -720 || minutes > 840)
-    throw Error("UTC 偏移须为 -12:00 至 +14:00");
-  return minutes;
-}
 function validateNtp(value) {
-  if (typeof value !== "string" || !value || value.length > 127 ||
-      !/^[A-Za-z0-9.:-]+$/.test(value))
+  if (
+    typeof value !== "string" ||
+    !value ||
+    value.length > 127 ||
+    !/^[A-Za-z0-9.:-]+$/.test(value)
+  )
     throw Error("NTP 服务器须为主机名或 IP，最多 127 字符");
 }
-function clockTitle(w, width) {
-  if (w.title) return w.title;
-  let offset;
-  try { offset = clockOffset(w.utc_offset); } catch { return "Time"; }
-  const minutes = Math.abs(offset),
-    zone = offset ? `${offset < 0 ? "-" : "+"}${Math.floor(minutes / 60)}${minutes % 60 ? ":" + String(minutes % 60).padStart(2, "0") : ""}` : "",
-    title = `Time (UTC${zone})`,
-    context = document.createElement("canvas").getContext("2d");
-  context.font = `14px ${getComputedStyle($("#screen")).fontFamily}`;
-  return context.measureText(title).width <= width - 16 ? title : "Time";
-}
-function clockTypography(w, width, height) {
-  const context = document.createElement("canvas").getContext("2d"),
-    family = getComputedStyle($("#screen")).fontFamily,
-    available = height - (w.size[1] > 1 ? 56 : 28);
-  for (const size of [48, 32, 26, 18, 14]) {
-    context.font = `${size}px ${family}`;
-    const line = Math.ceil(size * 1.2);
-    if (context.measureText(w.seconds ? "88:88:88" : "88:88").width <= width - 16 && line <= available)
-      return `font-size:${size}px;line-height:${line}px;top:${25 + Math.floor((available - line) / 2)}px`;
-  }
-  return "font-size:14px;line-height:17px;top:25px";
-}
-function clockParts(w, epoch = Date.now()) {
-  const date = new Date(epoch + clockOffset(w.utc_offset) * 60000);
-  const iso = date.toISOString();
-  return { time: iso.slice(11, w.seconds ? 19 : 16), date: iso.slice(0, 10) };
-}
+const bytes = (value) => new TextEncoder().encode(value).length;
+const checkString = (value, name, max, id = false, optional = false) => {
+  if (typeof value !== "string" || (!value && !optional))
+    throw Error(`${name}不能为空`);
+  if (bytes(value) > max) throw Error(`${name}最多 ${max} 字节`);
+  if (id && value && !/^[A-Za-z0-9._-]+$/.test(value))
+    throw Error(`${name}格式错误`);
+};
+
+const checkNumber = (value, label, min, max, integer = true) => {
+  if (
+    !Number.isFinite(value) ||
+    (integer && !Number.isInteger(value)) ||
+    value < min ||
+    value > max
+  )
+    throw Error(`${label}须为 ${min}–${max}`);
+};
+const checkIdentifier = (value, label) => checkString(value, label, 48, true);
+
 function validateDisplay() {
-  const bytes = (value) => new TextEncoder().encode(value).length;
-  const check = (value, name, max, id = false, optional = false) => {
-    if (typeof value !== "string" || (!value && !optional))
-      throw Error(`${name}不能为空`);
-    if (bytes(value) > max) throw Error(`${name}最多 ${max} 字节`);
-    if (id && value && !/^[A-Za-z0-9._-]+$/.test(value))
-      throw Error(`${name}格式错误`);
-  };
   if (display.pages.length < 1 || display.pages.length > 4)
     throw Error("须有 1–4 个页面");
   for (const p of display.pages) {
     validateLayout(p);
-    check(p.title, "页面名称", 48, false, true);
+    checkString(p.title, "页面名称", 48, false, true);
     for (const w of p.widgets) {
-      check(w.title, "Widget 标题", 48, false, true);
-      if (w.type === "metric") {
-        check(w.binding.host_id, "机器 ID", 48, true);
-        check(w.binding.source_id, "来源 ID", 48, true);
-        check(w.binding.key, "指标键", 48, true);
-        check(w.unit, "单位", 16, false, true);
-        if (/[^\x21-\x7e]/.test(w.unit)) throw Error("单位格式错误");
-      } else if (w.type === "status") {
-        check(w.host_id, "机器 ID", 48, true);
-        check(w.source_id, "来源 ID", 48, true);
-      } else if (w.type === "clock") clockOffset(w.utc_offset);
-      else if (w.type === "machine") check(w.host_id, "机器 ID", 48, true);
-      else {
-        if (w.hosts.length > 4) throw Error("最多 4 台机器");
-        if (w.hosts.includes("*") && w.hosts.length !== 1)
-          throw Error("全部机器不能与机器 ID 混用");
-        if (new Set(w.hosts).size !== w.hosts.length)
-          throw Error("机器 ID 重复");
-        for (const h of w.hosts) if (h !== "*") check(h, "机器 ID", 48, true);
-        check(w.source_id, "来源 ID", 48, true);
-        check(w.project, "项目", 48, false, true);
-        check(w.agent, "Agent ID", 96, false, true);
-      }
+      checkString(w.title, "Widget 标题", 48, false, true);
+      widgetTypes[w.type].validate(w, checkString);
     }
   }
 }
@@ -378,10 +333,18 @@ function parseConfig(source) {
     for (const key of Object.keys(object))
       if (!allowed.includes(key)) throw Error(`未知字段: ${path}.${key}`);
   };
-  keys(value, ["version", "access", "device", "network", "tls", "screen", "alerts"], "config");
+  keys(
+    value,
+    ["version", "access", "device", "network", "tls", "screen", "alerts"],
+    "config",
+  );
   keys(value.access, ["admin_token", "collector_token"], "access");
   if (value.device !== undefined)
-    keys(value.device, ["brightness", "rotation", "auto_rotate", "ntp_server"], "device");
+    keys(
+      value.device,
+      ["brightness", "rotation", "auto_rotate", "ntp_server"],
+      "device",
+    );
   if (value.network !== undefined)
     keys(value.network, ["ssid", "password", "hostname"], "network");
   if (value.tls !== undefined)
@@ -401,23 +364,24 @@ function parseConfig(source) {
     const widgetIds = new Set();
     if (!Array.isArray(page.widgets)) throw Error(`${path}.widgets 须为列表`);
     for (const [j, widget] of page.widgets.entries()) {
-      const fields =
-        widget?.type === "clock"
-          ? ["utc_offset", "seconds"]
-          : widget?.type === "agents"
-          ? ["hosts", "source", "filter", "auto_page", "project", "agent"]
-          : widget?.type === "status"
-            ? ["host", "source"]
-            : widget?.type === "metric"
-            ? ["host", "source", "key", "unit"]
-            : ["host"];
+      const module = widgetTypes[widget?.type];
+      if (!module) throw Error(`Widget 类型无效: ${widget?.type}`);
+      const fields = Object.keys(module.types);
       keys(
         widget,
         ["id", "type", "title", "at", "size", ...fields],
         `${path}.widgets[${j}]`,
       );
-      checkId(widget.id ?? `${widget.type}-${j + 1}`, widgetIds, `${path}.widgets[${j}].id`);
-      if (widget.type === "clock") clockOffset(widget.utc_offset ?? "+00:00");
+      checkId(
+        widget.id ?? `${widget.type}-${j + 1}`,
+        widgetIds,
+        `${path}.widgets[${j}].id`,
+      );
+      scalarTypes(widget, `${path}.widgets[${j}]`, {
+        title: "string",
+        ...module.types,
+      });
+      module.validate({ ...module.defaults(), ...widget }, checkString);
     }
     validateLayout(page);
   }
@@ -431,19 +395,15 @@ function parseConfig(source) {
       "alerts",
     );
   for (const [i, rule] of (value.alerts?.rules ?? []).entries()) {
-    const fields =
-      rule?.type === "agent_done"
-        ? ["source", "include_idle"]
-        : rule?.type === "metric_high"
-          ? ["source", "key", "unit", "threshold", "recover", "hold"]
-          : ["hold"];
+    const module = alertTypes[rule?.type];
+    if (!module) throw Error(`提醒类型无效: ${rule?.type}`);
+    const fields = Object.keys(module.types);
     keys(
       rule,
       [
         "id",
         "type",
         "enabled",
-        "host",
         "duration",
         "sound",
         "vibrate",
@@ -452,137 +412,123 @@ function parseConfig(source) {
       ],
       `alerts.rules[${i}]`,
     );
+    scalarTypes(rule, `alerts.rules[${i}]`, {
+      enabled: "boolean",
+      duration: "number",
+      sound: "boolean",
+      vibrate: "boolean",
+      flash: "boolean",
+      ...module.types,
+    });
+    module.validate(
+      { ...module.defaults(), ...rule },
+      { id: checkIdentifier, number: checkNumber },
+    );
   }
-  const types = {
-    version: "number", brightness: "number", rotation: "number",
-    volume: "number", vibration_strength: "number", duration: "number",
-    threshold: "number", recover: "number", hold: "number",
-    auto_rotate: "boolean", flash_enabled: "boolean", auto_page: "boolean",
-    enabled: "boolean", sound: "boolean", vibrate: "boolean", flash: "boolean",
-    include_idle: "boolean", seconds: "boolean", utc_offset: "string", ntp_server: "string",
-    ssid: "string", password: "string", hostname: "string",
-    certificate: "string", private_key: "string",
-  };
-  function scalarTypes(object, path) {
+  function commonTypes() {
+    return {
+      version: "number",
+      brightness: "number",
+      rotation: "number",
+      volume: "number",
+      vibration_strength: "number",
+      duration: "number",
+      auto_rotate: "boolean",
+      flash_enabled: "boolean",
+      enabled: "boolean",
+      sound: "boolean",
+      vibrate: "boolean",
+      flash: "boolean",
+      ntp_server: "string",
+      ssid: "string",
+      password: "string",
+      hostname: "string",
+      certificate: "string",
+      private_key: "string",
+    };
+  }
+  function scalarTypes(object, path, schema = commonTypes()) {
     for (const [key, item] of Object.entries(object)) {
       const name = `${path}.${key}`;
       if (item === null) throw Error(`${name} 不能为 null`);
-      if (types[key] && typeof item !== types[key])
+      if (schema[key] && (Array.isArray(item) ? "array" : typeof item) !== schema[key])
         throw Error(`${name} 类型错误`);
-      if (typeof item === "object") scalarTypes(item, name);
+      if (typeof item === "object" && !item.type)
+        scalarTypes(item, name, schema);
     }
   }
   scalarTypes(value, "config");
   validateNtp(value.device?.ntp_server ?? "pool.ntp.org");
-  const bytes = (text) => new TextEncoder().encode(text).length;
-  const ssid = value.network?.ssid ?? "", password = value.network?.password ?? "",
+  const ssid = value.network?.ssid ?? "",
+    password = value.network?.password ?? "",
     hostname = value.network?.hostname ?? "curio";
   if (bytes(ssid) > 32) throw Error("network.ssid 最多 32 字节");
   if (password && (bytes(password) < 8 || bytes(password) > 63))
     throw Error("network.password 须为 8–63 字节，或留空");
   if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,30}[A-Za-z0-9])?$/.test(hostname))
     throw Error("network.hostname 须为 1–32 位主机名");
-  if (value.tls !== undefined &&
-      (!value.tls.certificate || !value.tls.private_key ||
-       bytes(value.tls.certificate) > 2047 || bytes(value.tls.private_key) > 2047))
-    throw Error("tls.certificate 和 tls.private_key 须同时填写，且各不超过 2047 字节");
+  if (
+    value.tls !== undefined &&
+    (!value.tls.certificate ||
+      !value.tls.private_key ||
+      bytes(value.tls.certificate) > 2047 ||
+      bytes(value.tls.private_key) > 2047)
+  )
+    throw Error(
+      "tls.certificate 和 tls.private_key 须同时填写，且各不超过 2047 字节",
+    );
   if (value.version !== undefined && value.version !== 1)
     throw Error("version 须为 1");
-  if (value.device?.rotation !== undefined &&
-      ![0, 90, 180, 270].includes(value.device.rotation))
+  if (
+    value.device?.rotation !== undefined &&
+    ![0, 90, 180, 270].includes(value.device.rotation)
+  )
     throw Error("device.rotation 须为 0、90、180 或 270");
-  if (value.alerts?.vibration_strength !== undefined &&
-      (!Number.isInteger(value.alerts.vibration_strength) ||
-       value.alerts.vibration_strength < 0 || value.alerts.vibration_strength > 100))
+  if (
+    value.alerts?.vibration_strength !== undefined &&
+    (!Number.isInteger(value.alerts.vibration_strength) ||
+      value.alerts.vibration_strength < 0 ||
+      value.alerts.vibration_strength > 100)
+  )
     throw Error("alerts.vibration_strength 须为 0–100 的整数");
   return value;
 }
-function projectConfig(value) {
-  const projectedDisplay = {
+function loadFormConfig(value) {
+  display = {
     default_page: value.screen.default_page ?? value.screen.pages[0].id,
     pages: value.screen.pages.map((p) => ({
       id: p.id,
       title: p.title ?? p.id,
-      widgets: p.widgets.map((w, i) => {
-        const projected = {
-          id: w.id ?? `${w.type}-${i + 1}`,
-          type: w.type,
-          title:
-            w.title ??
-            { agents: "Agents", metric: "Metric", status: "Status", clock: "", machine: "Machine" }[
-              w.type
-            ] ??
-            "",
-          at: [...w.at],
-          size: [...w.size],
-        };
-        if (w.type === "agents")
-          Object.assign(projected, {
-            hosts: w.hosts ?? ["*"],
-            source_id: w.source ?? "herdr",
-            filter: w.filter ?? "all",
-            auto_page: w.auto_page ?? true,
-            project: w.project ?? "",
-            agent: w.agent ?? "",
-          });
-        else if (w.type === "metric")
-          Object.assign(projected, {
-            binding: { host_id: w.host, source_id: w.source, key: w.key },
-            unit: w.unit ?? "",
-          });
-        else if (w.type === "status") Object.assign(projected, { host_id: w.host, source_id: w.source });
-        else if (w.type === "clock") Object.assign(projected, { utc_offset: w.utc_offset ?? "+00:00", seconds: w.seconds ?? false });
-        else if (w.type === "machine") projected.host_id = w.host;
-        else throw Error(`Widget 类型无效: ${w.type}`);
-        return projected;
-      }),
+      widgets: p.widgets.map((w, i) => ({
+        ...widgetTypes[w.type].defaults(),
+        ...clone(w),
+        id: w.id ?? `${w.type}-${i + 1}`,
+      })),
     })),
   };
-  const projectedDevice = {
+  device = {
     ntp_server: "pool.ntp.org",
     brightness: 75,
     rotation: 0,
     auto_rotate: false,
     ...value.device,
   };
-  const projectedAlerts = {
+  alerts = {
     volume: value.alerts?.volume ?? 35,
     vibration_strength: value.alerts?.vibration_strength ?? 60,
     flash_enabled: value.alerts?.flash_enabled ?? false,
-    rules: (value.alerts?.rules ?? []).map((r, i) => {
-      const projected = {
-        id: r.id ?? `rule-${i + 1}`,
-        type: r.type,
-        enabled: r.enabled ?? true,
-        host_id: r.host ?? "*",
-        display_s: r.duration ?? 10,
-        sound: r.sound ?? false,
-        vibrate: r.vibrate ?? false,
-        flash: r.flash ?? false,
-      };
-      if (r.type === "agent_done")
-        Object.assign(projected, {
-          source_id: r.source ?? "herdr",
-          include_idle: r.include_idle ?? true,
-        });
-      else if (r.type === "metric_high")
-        Object.assign(projected, {
-          source_id: r.source,
-          key: r.key,
-          unit: r.unit,
-          threshold: r.threshold,
-          recover: r.recover,
-          hold_s: r.hold ?? 60,
-        });
-      else if (r.type === "host_offline") projected.hold_s = r.hold ?? 30;
-      else throw Error(`提醒类型无效: ${r.type}`);
-      return projected;
-    }),
+    rules: (value.alerts?.rules ?? []).map((r, i) => ({
+      enabled: true,
+      duration: 10,
+      sound: false,
+      vibrate: false,
+      flash: false,
+      ...alertTypes[r.type].defaults(),
+      ...clone(r),
+      id: r.id ?? `rule-${i + 1}`,
+    })),
   };
-  display = projectedDisplay;
-  device = projectedDevice;
   network = { ssid: "", password: "", hostname: "curio", ...value.network };
-  alerts = projectedAlerts;
   selected = Math.max(0, Math.min(selected, display.pages.length - 1));
 }
 function configFromForms() {
@@ -592,7 +538,9 @@ function configFromForms() {
       brightness: device.brightness,
       rotation: device.rotation,
       auto_rotate: device.auto_rotate,
-      ...(device.ntp_server !== "pool.ntp.org" ? { ntp_server: device.ntp_server } : {}),
+      ...(device.ntp_server !== "pool.ntp.org"
+        ? { ntp_server: device.ntp_server }
+        : {}),
     },
     network: {
       ssid: network.ssid,
@@ -604,74 +552,14 @@ function configFromForms() {
       pages: display.pages.map((p) => ({
         id: p.id,
         title: p.title,
-        widgets: p.widgets.map((w) => {
-          const value = {
-            id: w.id,
-            type: w.type,
-            ...(w.type !== "clock" || w.title ? { title: w.title } : {}),
-            at: [...w.at],
-            size: [...w.size],
-          };
-          if (w.type === "agents")
-            Object.assign(value, {
-              hosts: w.hosts,
-              source: w.source_id,
-              filter: w.filter,
-              auto_page: w.auto_page,
-              project: w.project,
-              agent: w.agent,
-            });
-          else if (w.type === "metric")
-            Object.assign(value, {
-              host: w.binding.host_id,
-              source: w.binding.source_id,
-              key: w.binding.key,
-              unit: w.unit,
-            });
-          else if (w.type === "clock") Object.assign(value, {
-            ...(w.utc_offset !== "+00:00" ? { utc_offset: w.utc_offset } : {}),
-            ...(w.seconds ? { seconds: true } : {}),
-          });
-          else {
-            value.host = w.host_id;
-            if (w.type === "status") value.source = w.source_id;
-          }
-          return value;
-        }),
+        widgets: clone(p.widgets),
       })),
     },
     alerts: {
       volume: alerts.volume,
       vibration_strength: alerts.vibration_strength,
       flash_enabled: alerts.flash_enabled,
-      rules: alerts.rules.map((r) => {
-        const value = {
-          id: r.id,
-          type: r.type,
-          enabled: r.enabled,
-          host: r.host_id,
-          duration: r.display_s,
-          sound: r.sound,
-          ...(r.vibrate ? { vibrate: true } : {}),
-          ...(r.flash ? { flash: true } : {}),
-        };
-        if (r.type === "agent_done")
-          Object.assign(value, {
-            source: r.source_id,
-            include_idle: r.include_idle,
-          });
-        else if (r.type === "metric_high")
-          Object.assign(value, {
-            source: r.source_id,
-            key: r.key,
-            unit: r.unit,
-            threshold: r.threshold,
-            recover: r.recover,
-            hold: r.hold_s,
-          });
-        else value.hold = r.hold_s;
-        return value;
-      }),
+      rules: clone(alerts.rules),
     },
   };
   if (network.hostname !== (configDocument.network?.hostname ?? "curio"))
@@ -689,8 +577,8 @@ function syncFormYaml() {
 }
 function applyRawDraft() {
   const parsed = parseConfig(yamlText);
-  previewAgents.clear();
-  projectConfig(parsed);
+  Object.values(widgetTypes).forEach((module) => module.clear?.());
+  loadFormConfig(parsed);
   configDocument = parsed;
 }
 async function configRequest(method = "GET", path = "config", body) {
@@ -727,7 +615,7 @@ async function configRequest(method = "GET", path = "config", body) {
       parsed = parseConfig(source);
     const etag = response.headers.get("ETag");
     if (!etag) throw Error("响应缺少 ETag");
-    projectConfig(parsed);
+    loadFormConfig(parsed);
     configDocument = parsed;
     yamlText = source;
     configEtag = etag;
@@ -735,7 +623,7 @@ async function configRequest(method = "GET", path = "config", body) {
     sessionStorage.setItem("curio-token", token);
     displayDirty = deviceDirty = alertsDirty = yamlDirty = false;
     layoutHistory.length = 0;
-    previewAgents.clear();
+    Object.values(widgetTypes).forEach((module) => module.clear?.());
   } finally {
     $("main").inert = false;
   }
@@ -869,8 +757,12 @@ async function poll() {
       );
     });
     document.querySelectorAll("[data-status-select]").forEach((select) => {
-      const w = page().widgets[Number(select.closest("[data-index]").dataset.index)];
-      select.outerHTML = statusSelect(w).replace(/^<label>数据|<\/label>$/g, "");
+      const w =
+        page().widgets[Number(select.closest("[data-index]").dataset.index)];
+      select.outerHTML = statusSelect(w).replace(
+        /^<label>数据|<\/label>$/g,
+        "",
+      );
     });
     if (tab === "data") renderEditor();
   } catch (e) {
@@ -883,7 +775,7 @@ async function poll() {
   }
 }
 function field(label, key, value, options, placeholder = "") {
-  return `<label>${label}${options ? `<select data-field="${key}">${options.map(([v, t]) => `<option value="${esc(v)}" ${String(value) === String(v) ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>` : `<input data-field="${key}" value="${esc(value)}" ${placeholder ? `placeholder="${esc(placeholder)}"` : ""} ${key.includes("host") ? 'list="hosts"' : key.includes("source") ? 'list="sources"' : key === "binding.key" ? 'list="keys"' : ""} maxlength="${key === "unit" ? 16 : key === "agent" ? 96 : key === "hosts" ? 195 : 48}">`}</label>`;
+  return `<label>${label}${options ? `<select data-field="${key}">${options.map(([v, t]) => `<option value="${esc(v)}" ${String(value) === String(v) ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>` : `<input data-field="${key}" value="${esc(value)}" ${placeholder ? `placeholder="${esc(placeholder)}"` : ""} ${key.includes("host") ? 'list="hosts"' : key.includes("source") ? 'list="sources"' : key === "key" ? 'list="keys"' : ""} maxlength="${key === "unit" ? 16 : key === "agent" ? 96 : key === "hosts" ? 195 : 48}">`}</label>`;
 }
 function renderOptions() {
   const all = hosts();
@@ -892,9 +784,9 @@ function renderOptions() {
     .join("");
   $("#sources").innerHTML = [
     ...new Set([
-      "system.cpu",
-      "system.memory",
-      "herdr",
+      ...Object.values(widgetTypes)
+        .map((module) => module.defaults().source)
+        .filter(Boolean),
       ...all.flatMap((h) => entries(h.sources).map(([id]) => id)),
     ]),
   ]
@@ -902,7 +794,9 @@ function renderOptions() {
     .join("");
   $("#keys").innerHTML = [
     ...new Set([
-      "usage_pct",
+      ...Object.values(widgetTypes)
+        .map((module) => module.defaults().key)
+        .filter(Boolean),
       ...all.flatMap((h) =>
         entries(h.sources).flatMap(([, s]) =>
           entries(s.metrics).map(([id]) => id),
@@ -918,71 +812,23 @@ function metricEntries() {
   for (const h of hosts())
     for (const [source_id, source] of entries(h.sources))
       for (const [key, metric] of entries(source.metrics)) {
-        const binding = { host_id: h.host_id, source_id, key };
-        records.set(JSON.stringify(binding), {
-          binding,
+        const fields = { host: h.host_id, source: source_id, key };
+        records.set(JSON.stringify(fields), {
+          ...fields,
           unit: metric.unit,
           label: `${h.host_name || h.host_id} · ${h.host_id} / ${source_id} / ${key}`,
         });
       }
   return [...records.values()];
 }
-function metricSelect(w) {
-  return `<label>数据<select data-metric-select><option value="">手动指定</option>${metricEntries()
+function widgetOptions(p) {
+  return Object.entries(widgetTypes)
     .map(
-      (m, i) =>
-        `<option value="${i}" ${JSON.stringify(m.binding) === JSON.stringify(w.binding) ? "selected" : ""}>${esc(m.label)}</option>`,
-    )
-    .join("")}</select></label>`;
-}
-function statusEntries() {
-  return hosts().flatMap((h) => entries(h.sources).filter(([, s]) => s.kind === "status").map(([source_id]) => ({
-    host_id: h.host_id, source_id, label: `${h.host_name || h.host_id} · ${h.host_id} / ${source_id}`,
-  })));
-}
-function statusSelect(w) {
-  return `<label>数据<select data-status-select><option value="">手动指定</option>${statusEntries().map((s, i) => `<option value="${i}" ${s.host_id === w.host_id && s.source_id === w.source_id ? "selected" : ""}>${esc(s.label)}</option>`).join("")}</select></label>`;
-}
-function widgetTypes(p) {
-  return ["metric", "status", "clock", "machine", "agents"]
-    .map(
-      (type) =>
-        `<option value="${type}" ${p.widgets.length >= 8 ? "disabled" : ""}>${{ metric: "指标", status: "状态", clock: "时钟", machine: "单机卡", agents: "Agent 列表" }[type]}</option>`,
+      ([type, module]) =>
+        `<option value="${type}" ${p.widgets.length >= 8 ? "disabled" : ""}>${module.label}</option>`,
     )
     .join("");
 }
-function agentText(a, hostName) {
-  const main =
-    a.brand && a.name && a.name !== a.brand
-      ? a.name
-      : a.project || a.name || a.brand || "Agent";
-  const detail = [
-    ...new Set(
-      [a.brand || a.name, a.project !== main ? a.project : "", hostName].filter(
-        Boolean,
-      ),
-    ),
-  ].join(" · ");
-  return { main, detail };
-}
-const alertNames = {
-  agent_done: "Agent 完成",
-  metric_high: "指标过高",
-  host_offline: "机器离线",
-};
-const alertDefaults = {
-  agent_done: { host_id: "*", source_id: "herdr", include_idle: true },
-  metric_high: {
-    host_id: "",
-    source_id: "system.memory",
-    key: "usage_pct",
-    unit: "percent",
-    threshold: 90,
-    recover: 85,
-    hold_s: 60,
-  },
-  host_offline: { host_id: "*", hold_s: 30 },
-};
 const alertNumber = (label, key, value, min, max, step = "1") =>
   `<label>${label}<input type="number" data-alert-field="${key}" value="${esc(value)}" min="${min}" max="${max}" step="${step}"></label>`;
 const alertDecimal = (label, key, value) =>
@@ -990,43 +836,21 @@ const alertDecimal = (label, key, value) =>
 const alertText = (label, key, value, list) =>
   `<label>${label}<input data-alert-field="${key}" value="${esc(value)}" list="${list}" maxlength="48"></label>`;
 function alertSummary(rule) {
-  const binding =
-    rule.type === "metric_high"
-      ? `${rule.host_id || "未绑定"} / ${rule.source_id} / ${rule.key} > ${rule.threshold}${rule.unit === "percent" ? "%" : ` ${rule.unit}`} · ${rule.hold_s} 秒 · ≤ ${rule.recover} 恢复`
-      : rule.type === "agent_done"
-        ? `${rule.host_id === "*" ? "全部机器" : rule.host_id || "未绑定"} · ${rule.source_id}${rule.include_idle ? " · 含空闲" : ""}`
-        : `${rule.host_id === "*" ? "全部机器" : rule.host_id || "未绑定"} · ${rule.hold_s} 秒`;
-  return `<span class="widget-caption"><strong>${alertNames[rule.type]}</strong><span>${esc(binding)}</span></span>`;
+  return `<span class="widget-caption"><strong>${alertTypes[rule.type].label}</strong><span>${esc(alertTypes[rule.type].summary(rule))}</span></span>`;
 }
-function alertMetricSelect(rule) {
-  const records = metricEntries();
-  const chosen = records.findIndex(
-    (m) =>
-      m.binding.host_id === rule.host_id &&
-      m.binding.source_id === rule.source_id &&
-      m.binding.key === rule.key &&
-      m.unit === rule.unit,
-  );
-  return `<label>已上报指标<select data-alert-metric><option value="">手动填写未上报指标</option>${records.map((m, i) => `<option value="${i}" ${i === chosen ? "selected" : ""}>${esc(m.label)}</option>`).join("")}</select></label>`;
-}
+
 function alertRuleEditor(rule, i) {
-  let fields;
-  if (rule.type === "metric_high")
-    fields = `${alertMetricSelect(rule)}<details class="manual-fields" ${metricEntries().some((m) => m.binding.host_id === rule.host_id && m.binding.source_id === rule.source_id && m.binding.key === rule.key && m.unit === rule.unit) ? "" : "open"}><summary>手动绑定</summary><div class="fields">${alertText("机器 ID", "host_id", rule.host_id, "hosts")}${alertText("来源 ID", "source_id", rule.source_id, "sources")}${alertText("指标键", "key", rule.key, "keys")}${alertText("单位", "unit", rule.unit, "alert-units")}</div></details><div class="fields">${alertDecimal("高于", "threshold", rule.threshold)}${alertDecimal("低于或等于恢复", "recover", rule.recover)}${alertNumber("持续（秒）", "hold_s", rule.hold_s, 1, 86400)}</div>`;
-  else if (rule.type === "agent_done")
-    fields = `<div class="fields">${alertText("机器 ID（* 为全部）", "host_id", rule.host_id, "alert-hosts")}<label>来源 ID<input value="herdr" disabled></label></div><label class="switch-field"><input type="checkbox" data-alert-field="include_idle" ${rule.include_idle ? "checked" : ""}><span>包含空闲</span></label>`;
-  else
-    fields = `<div class="fields">${alertText("机器 ID（* 为全部）", "host_id", rule.host_id, "alert-hosts")}${alertNumber("持续（秒）", "hold_s", rule.hold_s, 5, 86400)}</div>`;
+  const fields = alertTypes[rule.type].editor(rule);
   return `<div class="widget alert-rule" data-alert-index="${i}"><details class="widget-details" data-alert-details="${esc(rule.id)}" ${openAlerts.has(rule.id) ? "open" : ""}><summary class="widget-summary">${alertSummary(rule)}</summary><div class="widget-body"><label>类型<select data-alert-field="type">${Object.entries(
-    alertNames,
+    alertTypes,
   )
     .map(
-      ([value, name]) =>
-        `<option value="${value}" ${rule.type === value ? "selected" : ""}>${name}</option>`,
+      ([value, module]) =>
+        `<option value="${value}" ${rule.type === value ? "selected" : ""}>${module.label}</option>`,
     )
     .join(
       "",
-    )}</select></label>${fields}<div class="fields alert-delivery">${alertNumber("显示时间（秒，0 为手动关闭）", "display_s", rule.display_s, 0, 300)}</div><div class="widget-remove"><button class="danger" data-alert-remove="${i}">删除规则</button></div></div></details><div class="alert-toggles"><label class="switch-field"><input type="checkbox" data-alert-field="enabled" ${rule.enabled ? "checked" : ""}><span>启用</span></label><label class="switch-field"><input type="checkbox" data-alert-field="sound" ${rule.sound ? "checked" : ""}><span>声音</span></label><label class="switch-field"><input type="checkbox" data-alert-field="vibrate" ${rule.vibrate ? "checked" : ""}><span>振动</span></label><label class="switch-field"><input type="checkbox" data-alert-field="flash" ${rule.flash ? "checked" : ""}><span>闪光</span></label></div></div>`;
+    )}</select></label>${fields}<div class="fields alert-delivery">${alertNumber("显示时间（秒，0 为手动关闭）", "duration", rule.duration, 0, 300)}</div><div class="widget-remove"><button class="danger" data-alert-remove="${i}">删除规则</button></div></div></details><div class="alert-toggles"><label class="switch-field"><input type="checkbox" data-alert-field="enabled" ${rule.enabled ? "checked" : ""}><span>启用</span></label><label class="switch-field"><input type="checkbox" data-alert-field="sound" ${rule.sound ? "checked" : ""}><span>声音</span></label><label class="switch-field"><input type="checkbox" data-alert-field="vibrate" ${rule.vibrate ? "checked" : ""}><span>振动</span></label><label class="switch-field"><input type="checkbox" data-alert-field="flash" ${rule.flash ? "checked" : ""}><span>闪光</span></label></div></div>`;
 }
 function renderAlerts() {
   $("#alert-hosts").innerHTML =
@@ -1049,50 +873,19 @@ function renderAlerts() {
     `<section class="panel"><div class="actions editor-heading"><h2>提醒</h2><button id="reload-alerts">重新加载</button><button id="save-alerts">保存</button></div><div class="fields">${alertNumber("音量", "volume", alerts.volume, 0, 100)}${alertNumber("振动强度（0 为关闭）", "vibration_strength", alerts.vibration_strength, 0, 100)}</div><label class="switch-field"><input type="checkbox" data-alert-field="flash_enabled" ${alerts.flash_enabled ? "checked" : ""}><span>闪光灯</span></label><div class="section-label components-heading">规则<span>${alerts.rules.length} / 8</span></div>${alerts.rules.map(alertRuleEditor).join("")}${alerts.rules.length < 8 ? '<button class="add-alert" id="add-alert">＋ 添加规则</button>' : ""}</section>`;
 }
 function validateAlerts() {
-  const number = (value, label, min, max, integer = true) => {
-    if (
-      !Number.isFinite(value) ||
-      (integer && !Number.isInteger(value)) ||
-      value < min ||
-      value > max
-    )
-      throw Error(`${label}须为 ${min}–${max}`);
-  };
-  const id = (value, label) => {
-    if (
-      !value ||
-      new TextEncoder().encode(value).length > 48 ||
-      !/^[A-Za-z0-9._-]+$/.test(value)
-    )
-      throw Error(`${label}格式错误`);
-  };
-  number(alerts.volume, "音量", 0, 100);
-  number(alerts.vibration_strength, "振动强度", 0, 100);
+  checkNumber(alerts.volume, "音量", 0, 100);
+  checkNumber(alerts.vibration_strength, "振动强度", 0, 100);
   if (typeof alerts.flash_enabled !== "boolean")
     throw Error("闪光灯须为布尔值");
   if (alerts.rules.length > 8) throw Error("最多 8 条规则");
   if (new Set(alerts.rules.map((r) => r.id)).size !== alerts.rules.length)
     throw Error("规则 ID 重复");
   for (const rule of alerts.rules) {
-    id(rule.id, "规则 ID");
-    if (rule.host_id !== "*" || rule.type === "metric_high")
-      id(rule.host_id, "机器 ID");
-    if (rule.type === "metric_high") {
-      if (rule.host_id === "*") throw Error("指标须指定单台机器");
-      id(rule.source_id, "来源 ID");
-      id(rule.key, "指标键");
-      if (!rule.unit || rule.unit.length > 16 || /[^\x21-\x7e]/.test(rule.unit))
-        throw Error("单位格式错误");
-      if (!Number.isFinite(rule.threshold) || !Number.isFinite(rule.recover))
-        throw Error("阈值和恢复值须为有限数字");
-      if (rule.recover >= rule.threshold) throw Error("恢复值须低于阈值");
-      number(rule.hold_s, "持续时间", 1, 86400);
-    } else if (rule.type === "agent_done") {
-      if (rule.source_id !== "herdr") throw Error("Agent 来源须为 herdr");
-    } else if (rule.type === "host_offline")
-      number(rule.hold_s, "持续时间", 5, 86400);
-    else throw Error("规则类型错误");
-    number(rule.display_s, "显示时间", 0, 300);
+    checkIdentifier(rule.id, "规则 ID");
+    const module = alertTypes[rule.type];
+    if (!module) throw Error("规则类型错误");
+    module.validate(rule, { id: checkIdentifier, number: checkNumber });
+    checkNumber(rule.duration, "显示时间", 0, 300);
     if (typeof rule.vibrate !== "boolean") throw Error("振动须为布尔值");
     if (typeof rule.flash !== "boolean") throw Error("闪光须为布尔值");
   }
@@ -1103,9 +896,10 @@ function addAlert() {
   alerts.rules.push({
     id,
     enabled: true,
-    type: "metric_high",
-    ...alertDefaults.metric_high,
-    display_s: 10,
+    type: Object.keys(alertTypes)[0],
+    ...alertTypes[Object.keys(alertTypes)[0]].defaults(),
+    ...alertTypes[Object.keys(alertTypes)[0]].initial,
+    duration: 10,
     sound: false,
     vibrate: false,
     flash: false,
@@ -1152,11 +946,8 @@ function renderEditor() {
                         ([key, m]) =>
                           `<p class="code">${esc(key)} · ${esc(m.value ?? "—")} ${esc(m.unit)}</p>`,
                       )
-                      .join("")}${s.kind === "status" && s.state ? `<p class="code status-${esc(s.state.level)}">${esc(s.state.text)}${s.state.detail ? ` · ${esc(s.state.detail)}` : ""}</p>` : ""}${(s.agents || [])
-                      .map((a) => {
-                        const t = agentText(a, h.host_name || h.host_id);
-                        return `<p class="catalog-agent"><strong>${esc(t.main)}</strong><span>${esc(a.state)}</span><small>${esc(t.detail)} · ${esc(a.id)}</small></p>`;
-                      })
+                      .join("")}${Object.values(widgetTypes)
+                      .map((module) => module.catalog?.(s, h) || "")
                       .join("")}</div>`,
                 )
                 .join("")}`,
@@ -1193,29 +984,14 @@ function renderEditor() {
         ? `<label>当前组件<select id="widget-select">${p.widgets.map((item, n) => `<option value="${esc(item.id)}" ${item.id === selectedWidget ? "selected" : ""}>${n + 1}. ${esc(item.title || item.type)}</option>`).join("")}</select></label>
     <div class="widget" data-index="${i}"><h3>${esc(w.title || w.type)}</h3>
     <div class="fields layout-fields">${axis("列", "rect.col", w.at[0] + 1, 4)}${axis("行", "rect.row", w.at[1] + 1, 6)}${axis("宽度（列）", "rect.width", w.size[0], 5 - minimum(w.type)[0], minimum(w.type)[0])}${axis("高度（行）", "rect.height", w.size[1], 7 - minimum(w.type)[1], minimum(w.type)[1])}</div>
-    <div class="widget-body">${field("标题", "title", w.title, undefined, w.type === "clock" ? "自动" : "")}${
-      w.type === "clock"
-        ? `${field("UTC 偏移", "utc_offset", w.utc_offset)}<label class="switch-field"><input type="checkbox" role="switch" data-field="seconds" ${w.seconds ? "checked" : ""}><span>显示秒</span></label>`
-        : w.type === "metric"
-        ? `${metricSelect(w)}<details class="manual-fields" ${w.binding.host_id ? "" : "open"}><summary>手动绑定</summary><div class="fields">${field("机器 ID", "binding.host_id", w.binding.host_id)}${field("来源 ID", "binding.source_id", w.binding.source_id)}${field("指标键", "binding.key", w.binding.key)}${field("单位", "unit", w.unit)}</div></details>`
-        : w.type === "status"
-          ? `${statusSelect(w)}<details class="manual-fields" open><summary>手动绑定</summary><div class="fields">${field("机器 ID", "host_id", w.host_id)}${field("来源 ID", "source_id", w.source_id)}</div></details>`
-        : w.type === "machine"
-          ? field("机器 ID", "host_id", w.host_id)
-          : `<div class="fields">${field("机器 ID（逗号分隔，* 为全部）", "hosts", w.hosts.join(", "))}${field("来源 ID", "source_id", w.source_id)}${field(
-              "默认状态",
-              "filter",
-              w.filter,
-              [
-                ["all", "全部"],
-                ["attention", "需关注"],
-                ["working", "进行中"],
-              ],
-            )}</div><details class="manual-fields"><summary>筛选条件</summary><div class="fields">${field("项目", "project", w.project)}${field("Agent ID", "agent", w.agent)}</div></details><label class="switch-field"><input type="checkbox" role="switch" data-field="auto_page" ${w.auto_page !== false ? "checked" : ""}><span>自动翻页</span><small>10 秒</small></label>`
-    }<div class="widget-remove"><button class="danger" data-remove="${i}">删除组件</button></div></div></div>`
+    <div class="widget-body">${field("标题", "title", w.title, undefined, widgetTypes[w.type].titlePlaceholder || "")}${widgetTypes[
+      w.type
+    ].editor(
+      w,
+    )}<div class="widget-remove"><button class="danger" data-remove="${i}">删除组件</button></div></div></div>`
         : ""
     }
-    <div class="actions add-widget-row"><select id="new-type" ${p.widgets.length >= 8 ? "disabled" : ""}>${widgetTypes(p)}</select><button id="add-widget" ${p.widgets.length >= 8 ? "disabled" : ""}>＋ 添加组件</button></div>
+    <div class="actions add-widget-row"><select id="new-type" ${p.widgets.length >= 8 ? "disabled" : ""}>${widgetOptions(p)}</select><button id="add-widget" ${p.widgets.length >= 8 ? "disabled" : ""}>＋ 添加组件</button></div>
   </section>`;
 }
 
@@ -1223,50 +999,17 @@ function metricHTML(b, unit) {
   const r = resolve(b, unit);
   return `<span class="${r.value === undefined ? "metric-status" : "metric-value"}">${esc(r.text)}</span>`;
 }
-function agentRows(w, filter = w.filter) {
-  let rows = [],
-    missing = [];
-  const chosen = w.hosts.includes("*")
-    ? hosts()
-    : w.hosts.map((id) => host(id) || { host_id: id });
-  for (const h of chosen) {
-    const s = source(h, w.source_id);
-    const problem = !host(h.host_id)
-      ? "Waiting"
-      : s && s.kind !== "agents"
-        ? "Type mismatch"
-        : health(h, s) || (!s ? "Not reported" : "");
-    if (problem) missing.push({ h, problem });
-    for (const a of s?.kind === "agents" ? s.agents || [] : []) {
-      if (
-        (w.project && a.project !== w.project) ||
-        (w.agent && a.id !== w.agent)
-      )
-        continue;
-      if (
-        (filter === "attention" && a.state !== "blocked") ||
-        (filter === "working" && a.state !== "working")
-      )
-        continue;
-      rows.push({ h, a, problem });
-    }
-  }
-  const rank = { blocked: 0, working: 1, idle: 2, done: 3, unknown: 4 };
-  rows.sort(
-    (a, b) =>
-      (rank[a.a.state] ?? 4) - (rank[b.a.state] ?? 4) ||
-      a.h.host_id.localeCompare(b.h.host_id) ||
-      (a.a.id || "").localeCompare(b.a.id || ""),
-  );
-  return { rows, missing };
-}
 function renderPreview(items) {
   if (!display) return;
   items ??= page().widgets;
   if (gesture && items === page().widgets) return;
   const p = page(),
     editing = tab === "screen";
-  $("#preview-detail").textContent = p.widgets.some((w) => w.type === "clock") ? "480 × 480 · 浏览器时间" : "480 × 480";
+  $("#preview-detail").textContent = p.widgets.some(
+    (w) => widgetTypes[w.type].browserTime,
+  )
+    ? "480 × 480 · 浏览器时间"
+    : "480 × 480";
   let html = `<div class="screen-head"><button id="screen-page">${esc(p.title)} ▾</button><span class="screen-icons" aria-hidden="true"><svg viewBox="0 0 78 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 7Q9 -1 17 7M4 10Q9 5 14 10M7 13Q9 11 11 13"/><circle cx="9" cy="16" r="1"/><path d="M27 14V9a6 6 0 0 1 12 0v5M27 10h3v7h-3zM36 10h3v7h-3z"/><rect x="50" y="5" width="21" height="11" rx="2"/><path d="M73 8v5M53 8h12v5H53z"/></svg>⚙</span></div>`;
   if (editing)
     for (let row = 0; row < 6; row++)
@@ -1276,46 +1019,8 @@ function renderPreview(items) {
       }
   for (const w of items || []) {
     const { x, y, width, height } = pixelRect(w);
-    html += `<div class="card ${w.type === "status" ? `status-card ${w.size[1] === 1 ? "short-row" : ""}` : ""} ${w.type === "clock" ? "clock-card" : w.type === "agents" ? "agent-card" : (w.type === "metric" || w.type === "status") ? "metric-card" : "machine-card"} ${(w.type === "metric" || w.type === "status") && w.size[0] === 1 ? "narrow" : ""} ${editing && w.id === selectedWidget ? "selected" : ""}" data-widget-id="${esc(w.id)}" style="left:${x}px;top:${y}px;width:${width}px;height:${height}px">`;
-    if (w.type === "clock") {
-      let parts;
-      try { parts = clockParts(w); } catch { parts = { time: "--:--", date: "" }; }
-      html += `<span class="clock-title">${esc(clockTitle(w, width))}</span><span class="clock-time" style="${clockTypography(w, width, height)}">${parts.time}</span>${w.size[1] > 1 ? `<span class="clock-date">${parts.date}</span>` : ""}`;
-    } else if (w.type === "metric")
-      html += `<div class="metric-main"><span class="metric-title">${esc(w.title)}</span>${metricHTML(w.binding, w.unit)}</div>${w.size[0] === 1 && w.size[1] === 1 ? "" : `<div class="metric-host">${esc(host(w.binding.host_id)?.host_name || w.binding.host_id)}</div>`}`;
-    else if (w.type === "status") {
-      const result = resolveStatus(w);
-      html += `<div class="metric-main"><span class="metric-title">${esc(w.title)}</span><span class="metric-status status-${esc(result.level || "unknown")}">${esc(result.text)}</span></div>${(w.size[1] > 1 || w.size[0] > 1) && result.detail ? `<div class="status-detail">${esc(result.detail)}</div>` : ""}`;
-    } else if (w.type === "machine")
-      html += `<span>${esc(w.title || host(w.host_id)?.host_name || w.host_id)}</span><div class="metric-host">${esc(w.host_id)} · ${esc(host(w.host_id)?.health || "Waiting")}</div>${[
-        ["CPU", "system.cpu"],
-        ["RAM", "system.memory"],
-      ]
-        .map(
-          ([name, id]) =>
-            `<div class="machine-value"><span>${name}</span>${metricHTML({ host_id: w.host_id, source_id: id, key: "usage_pct" }, "percent")}</div>`,
-        )
-        .join("")}`;
-    else {
-      const view = agentPreview(w),
-        { rows, missing } = agentRows(w, view.filter),
-        capacity = Math.max(1, Math.floor((height - 72) / 47));
-      const pages = Math.max(1, Math.ceil(rows.length / capacity));
-      view.page = Math.min(view.page, pages - 1);
-      html += `<div class="filters">${["all", "attention", "working"].map((f, i) => `<button data-preview-filter="${f}" data-widget-id="${esc(w.id)}" class="${view.filter === f ? "active" : ""}">${["All", "Attention", "Working"][i]}</button>`).join("")}</div>`;
-      html +=
-        rows
-          .slice(view.page * capacity, (view.page + 1) * capacity)
-          .map(({ h, a, problem }) => {
-            const t = agentText(a, h.host_name || h.host_id);
-            return `<div class="agent-row"><div class="agent-name"><strong>${esc(t.main)}</strong><span class="state-${esc(a.state)}">${esc(problem || a.state)}</span></div><div class="agent-detail">${esc(t.detail)}</div></div>`;
-          })
-          .join("") || '<div class="empty">No matching agents</div>';
-      const summary = missing
-        .map(({ h, problem }) => `${h.host_name || h.host_id}: ${problem}`)
-        .join(" · ");
-      html += `<div class="agent-summary" title="${esc(summary)}">${esc(summary)}</div><div class="agent-footer"><button data-agent-turn="-1" data-widget-id="${esc(w.id)}" ${view.page === 0 ? "disabled" : ""} aria-label="上一页">‹</button><span>${rows.length} agents · ${view.page + 1} / ${pages}</span><button data-agent-turn="1" data-widget-id="${esc(w.id)}" ${view.page >= pages - 1 ? "disabled" : ""} aria-label="下一页">›</button></div>`;
-    }
+    html += `<div class="card ${widgetTypes[w.type].classes(w)} ${editing && w.id === selectedWidget ? "selected" : ""}" data-widget-id="${esc(w.id)}" style="left:${x}px;top:${y}px;width:${width}px;height:${height}px">`;
+    html += widgetTypes[w.type].preview(w, { width, height });
     if (editing && selectedWidget === w.id)
       html += '<span class="resize-handle" aria-label="调整尺寸"></span>';
     html += "</div>";
@@ -1361,25 +1066,9 @@ function addWidget() {
     type,
     at,
     size: [...size],
-    title: { metric: "Metric", status: "Status", clock: "", machine: "Machine", agents: "Agents" }[type],
+    ...widgetTypes[type].defaults(),
+    ...widgetTypes[type].initial,
   };
-  if (type === "metric")
-    Object.assign(w, {
-      binding: { host_id: "", source_id: "system.cpu", key: "usage_pct" },
-      unit: "percent",
-    });
-  else if (type === "status") Object.assign(w, { host_id: "", source_id: "" });
-  else if (type === "clock") Object.assign(w, { utc_offset: "+00:00", seconds: false });
-  else if (type === "machine") w.host_id = "";
-  else
-    Object.assign(w, {
-      hosts: ["*"],
-      source_id: "herdr",
-      filter: "all",
-      auto_page: true,
-      project: "",
-      agent: "",
-    });
   rememberLayout();
   p.widgets.push(w);
   selectedWidget = w.id;
@@ -1402,34 +1091,26 @@ document.addEventListener(
 );
 document.addEventListener("change", (e) => {
   const t = e.target;
-  if (t.hasAttribute("data-alert-metric")) {
-    if (t.value === "") {
-      t.closest(".widget-body").querySelector(".manual-fields").open = true;
-      return;
-    }
-    const m = metricEntries()[Number(t.value)];
-    if (!m) return;
-    const rule =
-      alerts.rules[Number(t.closest("[data-alert-index]").dataset.alertIndex)];
-    Object.assign(rule, m.binding, { unit: m.unit });
-    alertsDirty = true;
-    status("");
-    renderEditor();
+  if (
+    [...Object.values(widgetTypes), ...Object.values(alertTypes)].some(
+      (module) => module.change?.(t),
+    )
+  )
     return;
-  }
   if (t.hasAttribute("data-alert-field")) {
     const key = t.dataset.alertField;
     const rule = t.closest("[data-alert-index]")
       ? alerts.rules[Number(t.closest("[data-alert-index]").dataset.alertIndex)]
       : alerts;
     if (key === "type") {
-      const { id, enabled, display_s, sound, vibrate, flash } = rule;
+      const { id, enabled, duration, sound, vibrate, flash } = rule;
       Object.assign(rule, {
         id,
         enabled,
         type: t.value,
-        ...alertDefaults[t.value],
-        display_s,
+        ...alertTypes[t.value].defaults(),
+        ...alertTypes[t.value].initial,
+        duration,
         sound,
         vibrate,
         flash,
@@ -1440,11 +1121,11 @@ document.addEventListener("change", (e) => {
             "id",
             "enabled",
             "type",
-            "display_s",
+            "duration",
             "sound",
             "vibrate",
             "flash",
-            ...Object.keys(alertDefaults[t.value]),
+            ...Object.keys(alertTypes[t.value].types),
           ].includes(field)
         )
           delete rule[field];
@@ -1468,9 +1149,15 @@ document.addEventListener("change", (e) => {
     status("");
     return;
   }
-  if (t.id === "network-ssid" || t.id === "network-password" || t.id === "network-hostname") {
-    network[t.id.slice(8)] = t.id === "network-hostname" ? t.value.trim() : t.value;
-    $("#download-certificate").disabled = !configDocument.tls?.certificate ||
+  if (
+    t.id === "network-ssid" ||
+    t.id === "network-password" ||
+    t.id === "network-hostname"
+  ) {
+    network[t.id.slice(8)] =
+      t.id === "network-hostname" ? t.value.trim() : t.value;
+    $("#download-certificate").disabled =
+      !configDocument.tls?.certificate ||
       network.hostname !== (configDocument.network?.hostname ?? "curio");
     deviceDirty = true;
     status("");
@@ -1483,38 +1170,6 @@ document.addEventListener("change", (e) => {
     } else device[t.id] = Number(t.value);
     deviceDirty = true;
     status("");
-    return;
-  }
-  if (t.hasAttribute("data-status-select")) {
-    const record = t.value === "" ? null : statusEntries()[Number(t.value)];
-    if (!record) return;
-    rememberLayout();
-    const w = page().widgets[Number(t.closest("[data-index]").dataset.index)];
-    w.host_id = record.host_id;
-    w.source_id = record.source_id;
-    markDisplayDirty();
-    render();
-    return;
-  }
-  if (t.hasAttribute("data-metric-select")) {
-    if (t.value === "") {
-      t.closest(".widget-body").querySelector(".manual-fields").open = true;
-      return;
-    }
-    const m = metricEntries()[Number(t.value)];
-    if (t.value !== "" && m) {
-      const w = page().widgets[Number(t.closest("[data-index]").dataset.index)];
-      if (
-        JSON.stringify(w.binding) === JSON.stringify(m.binding) &&
-        w.unit === m.unit
-      )
-        return;
-      rememberLayout();
-      w.binding = { ...m.binding };
-      w.unit = m.unit;
-      render();
-      markDisplayDirty();
-    }
     return;
   }
   if (t.id === "page-select") {
@@ -1548,24 +1203,18 @@ document.addEventListener("change", (e) => {
       return;
     }
     const value =
-      (key === "auto_page" || key === "seconds")
+      t.type === "checkbox"
         ? t.checked
-        : key === "hosts"
+        : widgetTypes[w.type].types[key] === "array"
           ? t.value
               .split(",")
               .map((x) => x.trim())
               .filter(Boolean)
           : t.value.trim();
-    const bindingKey = key.startsWith("binding.") ? key.slice(8) : null;
-    if (
-      JSON.stringify(bindingKey ? w.binding[bindingKey] : w[key]) ===
-      JSON.stringify(value)
-    )
-      return;
+    if (JSON.stringify(w[key]) === JSON.stringify(value)) return;
     rememberLayout();
-    if (bindingKey) w.binding[bindingKey] = value;
-    else w[key] = value;
-    previewAgents.delete(`${p.id}/${w.id}`);
+    w[key] = value;
+    widgetTypes[w.type].invalidate?.(w);
   }
   resetAutoPage();
   markDisplayDirty();
@@ -1574,6 +1223,7 @@ document.addEventListener("change", (e) => {
 document.addEventListener("click", async (e) => {
   const t = e.target.closest("button");
   if (!t) return;
+  if (Object.values(widgetTypes).some((module) => module.click?.(t))) return;
   try {
     if (t.dataset.tab) {
       if (!display || !token) return;
@@ -1659,7 +1309,9 @@ document.addEventListener("click", async (e) => {
     } else if (t.id === "download-certificate") {
       const certificate = configDocument.tls?.certificate;
       if (!certificate) return;
-      const url = URL.createObjectURL(new Blob([certificate], { type: "application/x-pem-file" }));
+      const url = URL.createObjectURL(
+        new Blob([certificate], { type: "application/x-pem-file" }),
+      );
       const link = document.createElement("a");
       link.href = url;
       link.download = `${network.hostname}.crt`;
@@ -1703,15 +1355,6 @@ document.addEventListener("click", async (e) => {
       selected = (selected + 1) % display.pages.length;
       resetAutoPage();
       render();
-    } else if (t.dataset.previewFilter) {
-      const w = page().widgets.find((w) => w.id === t.dataset.widgetId),
-        view = agentPreview(w);
-      view.filter = t.dataset.previewFilter;
-      view.page = 0;
-      view.due = performance.now() + 10000;
-      renderPreview();
-    } else if (t.dataset.agentTurn) {
-      turnAgents(t.dataset.widgetId, Number(t.dataset.agentTurn));
     }
   } catch (e) {
     status(e.message);
@@ -1722,19 +1365,6 @@ preview.tabIndex = 0;
 preview.setAttribute("role", "region");
 preview.setAttribute("aria-label", "屏幕预览");
 let suppressClickUntil = 0;
-function turnAgents(id, direction) {
-  const w = page().widgets.find((w) => w.id === id && w.type === "agents");
-  if (!w) return;
-  const view = agentPreview(w),
-    capacity = Math.max(1, Math.floor((pixelRect(w).height - 72) / 47));
-  const pages = Math.max(
-    1,
-    Math.ceil(agentRows(w, view.filter).rows.length / capacity),
-  );
-  view.page = Math.max(0, Math.min(pages - 1, view.page + direction));
-  view.due = performance.now() + 10000;
-  renderPreview();
-}
 preview.addEventListener("pointerdown", (event) => {
   if (
     tab !== "screen" ||
@@ -1820,30 +1450,19 @@ preview.addEventListener(
   true,
 );
 function resetAutoPage() {
-  const due = performance.now() + 10000;
-  for (const view of previewAgents.values()) view.due = due;
+  Object.values(widgetTypes).forEach((module) => module.reset?.());
 }
 let previewClockSecond = -1;
 setInterval(() => {
   if (!display || document.hidden || tab !== "screen" || !token || gesture)
     return;
   const second = Math.floor(Date.now() / 1000);
-  let changed = second !== previewClockSecond && page().widgets.some((w) => w.type === "clock");
+  const changed = page()
+    .widgets.map((w) =>
+      widgetTypes[w.type].tick?.(w, second !== previewClockSecond),
+    )
+    .some(Boolean);
   previewClockSecond = second;
-  for (const w of page().widgets.filter(
-    (w) => w.type === "agents" && w.auto_page !== false,
-  )) {
-    const view = agentPreview(w);
-    if (performance.now() < view.due) continue;
-    const capacity = Math.max(1, Math.floor((pixelRect(w).height - 72) / 47));
-    const pages = Math.max(
-      1,
-      Math.ceil(agentRows(w, view.filter).rows.length / capacity),
-    );
-    view.page = (view.page + 1) % pages;
-    view.due = performance.now() + 10000;
-    changed = true;
-  }
   if (changed) renderPreview();
 }, 250);
 document.addEventListener("visibilitychange", () => {

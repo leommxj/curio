@@ -1,60 +1,75 @@
 #include "curio_alerts.h"
-
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include "cJSON.h"
+#include "curio_module.h"
 #include <string.h>
-
-typedef struct {
-    char id[97];
-    curio_agent_state_t state;
-    bool seen;
-} agent_track_t;
-
-typedef struct {
-    char host_id[49];
-    bool used, seen_online, accumulating, alarmed;
-    uint64_t started_ms;
-} host_track_t;
-
-typedef struct {
-    host_track_t hosts[CURIO_MAX_HOSTS];
-    agent_track_t *agents;
-} rule_track_t;
-
 struct curio_alerts {
     curio_allocator_t allocator;
     curio_alert_config_t config;
-    rule_track_t *tracks;
+    void *states[CURIO_ALERT_MAX_RULES];
     curio_alert_notification_t queue[CURIO_ALERT_QUEUE];
+    char keys[CURIO_ALERT_QUEUE][149];
     size_t count;
     uint32_t next_id, dropped;
     uint64_t shown_ms;
 };
-
-static uint64_t elapsed(uint64_t now, uint64_t then)
+static uint64_t elapsed(uint64_t now, uint64_t then) { return now >= then ? now - then : 0; }
+const curio_alert_type_t *curio_alert_type_find(const char *id)
 {
-    return now >= then ? now - then : 0;
+    for (size_t i = 0; i < curio_alert_type_count; i++)
+        if (!strcmp(id, curio_alert_types[i]->id)) return curio_alert_types[i];
+    return NULL;
 }
 
-static bool identifier(const char *s)
+void curio_alert_config_free(curio_alert_config_t *c)
 {
-    if (!s || !*s)
-        return false;
-    for (; *s; s++)
-        if (!((*s >= 'a' && *s <= 'z') || (*s >= 'A' && *s <= 'Z') ||
-              (*s >= '0' && *s <= '9') || *s == '_' || *s == '-' || *s == '.'))
-            return false;
+    if (!c) return;
+    for (size_t i = 0; i < c->rule_count; i++) cJSON_free(c->rules[i].options);
+    curio_alert_config_default(c);
+}
+
+bool curio_alert_config_clone(curio_alert_config_t *dst, const curio_alert_config_t *src)
+{
+    curio_alert_config_t copy = *src;
+    for (size_t i = 0; i < copy.rule_count; i++) copy.rules[i].options = NULL;
+    for (size_t i = 0; i < copy.rule_count; i++) {
+        size_t size = src->rules[i].type->options_size;
+        copy.rules[i].options = cJSON_malloc(size);
+        if (!copy.rules[i].options) { curio_alert_config_free(&copy); return false; }
+        memcpy(copy.rules[i].options, src->rules[i].options, size);
+    }
+    *dst = copy;
     return true;
 }
 
-static bool unit_valid(const char *s)
+bool curio_alert_rules_equal(const curio_alert_config_t *a, const curio_alert_config_t *b)
 {
-    if (!s || !*s)
-        return false;
-    for (; *s; s++)
-        if ((unsigned char)*s < 33 || (unsigned char)*s > 126)
-            return false;
+    if (a->rule_count != b->rule_count) return false;
+    for (size_t i = 0; i < a->rule_count; i++) {
+        const curio_alert_rule_t *x = &a->rules[i], *y = &b->rules[i];
+        if (strcmp(x->id, y->id) || x->enabled != y->enabled || x->type != y->type ||
+            x->display_s != y->display_s || x->sound != y->sound || x->vibrate != y->vibrate ||
+            x->flash != y->flash || memcmp(x->options, y->options, x->type->options_size)) return false;
+    }
+    return true;
+}
+
+bool curio_alert_config_equal(const curio_alert_config_t *a, const curio_alert_config_t *b)
+{
+    return a->revision == b->revision && a->volume == b->volume &&
+        a->vibration_strength == b->vibration_strength && a->flash_enabled == b->flash_enabled &&
+            curio_alert_rules_equal(a, b);
+}
+
+bool curio_alert_config_validate(const curio_alert_config_t *c)
+{
+    if (!c || c->rule_count > CURIO_ALERT_MAX_RULES || c->volume > 100 ||
+        c->vibration_strength > 100) return false;
+    for (size_t i = 0; i < c->rule_count; i++) {
+        const curio_alert_rule_t *r = &c->rules[i];
+        if (!curio_identifier(r->id, 48) || r->display_s > 300 || !r->type || !r->options ||
+            curio_alert_type_find(r->type->id) != r->type || !r->type->validate(r->options)) return false;
+        for (size_t j = 0; j < i; j++) if (!strcmp(r->id, c->rules[j].id)) return false;
+    }
     return true;
 }
 
@@ -65,37 +80,6 @@ void curio_alert_config_default(curio_alert_config_t *c)
     memset(c, 0, sizeof(*c));
     c->volume = 35;
     c->vibration_strength = 60;
-}
-
-static bool valid_rule(const curio_alert_rule_t *r)
-{
-    if (!identifier(r->id) || r->display_s > 300 ||
-        (r->type != CURIO_ALERT_AGENT_DONE && r->type != CURIO_ALERT_METRIC_HIGH &&
-         r->type != CURIO_ALERT_HOST_OFFLINE) ||
-        (!identifier(r->host_id) && strcmp(r->host_id, "*")))
-        return false;
-    if (r->type == CURIO_ALERT_AGENT_DONE)
-        return !strcmp(r->source_id, "herdr");
-    if (r->type == CURIO_ALERT_HOST_OFFLINE)
-        return r->hold_s >= 5 && r->hold_s <= 86400;
-    return strcmp(r->host_id, "*") && identifier(r->source_id) &&
-           identifier(r->key) && unit_valid(r->unit) && strlen(r->unit) <= 16 &&
-           r->hold_s >= 1 && r->hold_s <= 86400 && isfinite(r->threshold) &&
-           isfinite(r->recover) && r->recover < r->threshold;
-}
-
-bool curio_alert_config_validate(const curio_alert_config_t *c)
-{
-    if (!c || c->volume > 100 || c->vibration_strength > 100 || c->rule_count > CURIO_ALERT_MAX_RULES)
-        return false;
-    for (size_t i = 0; i < c->rule_count; i++) {
-        if (!valid_rule(&c->rules[i]))
-            return false;
-        for (size_t j = 0; j < i; j++)
-            if (!strcmp(c->rules[i].id, c->rules[j].id))
-                return false;
-    }
-    return true;
 }
 
 curio_alerts_t *curio_alerts_create(curio_allocator_t allocator)
@@ -111,14 +95,18 @@ curio_alerts_t *curio_alerts_create(curio_allocator_t allocator)
     return a;
 }
 
+static void clear_states(curio_alerts_t *a)
+{
+    for (size_t i = 0; i < a->config.rule_count; i++)
+        a->allocator.free(a->states[i]);
+    memset(a->states, 0, sizeof(a->states));
+}
+
 void curio_alerts_destroy(curio_alerts_t *a)
 {
-    if (!a)
-        return;
-    if (a->tracks)
-        for (size_t i = 0; i < a->config.rule_count; i++)
-            a->allocator.free(a->tracks[i].agents);
-    a->allocator.free(a->tracks);
+    if (!a) return;
+    clear_states(a);
+    curio_alert_config_free(&a->config);
     a->allocator.free(a);
 }
 
@@ -143,281 +131,95 @@ void curio_alerts_set_volume(curio_alerts_t *a, uint8_t volume)
 
 bool curio_alerts_configure(curio_alerts_t *a, const curio_alert_config_t *c)
 {
-    if (!a || !curio_alert_config_validate(c))
-        return false;
-    bool enabled = false;
-    for (size_t i = 0; i < c->rule_count; i++)
-        enabled |= c->rules[i].enabled;
-    rule_track_t *tracks = NULL;
-    if (enabled) {
-        tracks = a->allocator.alloc(c->rule_count * sizeof(*tracks));
-        if (!tracks)
-            return false;
-        memset(tracks, 0, c->rule_count * sizeof(*tracks));
-        for (size_t i = 0; i < c->rule_count; i++) {
-            if (!c->rules[i].enabled || c->rules[i].type != CURIO_ALERT_AGENT_DONE)
-                continue;
-            tracks[i].agents = a->allocator.alloc(CURIO_MAX_HOSTS * CURIO_MAX_AGENTS *
-                                                  sizeof(agent_track_t));
-            if (!tracks[i].agents) {
-                for (size_t j = 0; j < i; j++)
-                    a->allocator.free(tracks[j].agents);
-                a->allocator.free(tracks);
-                return false;
-            }
-            memset(tracks[i].agents, 0,
-                   CURIO_MAX_HOSTS * CURIO_MAX_AGENTS * sizeof(agent_track_t));
-        }
+    if (!a || !curio_alert_config_validate(c)) return false;
+    if (curio_alert_rules_equal(&a->config, c)) {
+        curio_alerts_set_volume(a, c->volume);
+        curio_alerts_set_vibration_strength(a, c->vibration_strength);
+        a->config.flash_enabled = c->flash_enabled;
+        a->config.revision = c->revision;
+        return true;
     }
-    if (a->tracks)
-        for (size_t i = 0; i < a->config.rule_count; i++)
-            a->allocator.free(a->tracks[i].agents);
-    a->allocator.free(a->tracks);
-    a->tracks = tracks;
-    a->config = *c;
+    curio_alert_config_t copy;
+    if (!curio_alert_config_clone(&copy, c)) return false;
+    void *states[CURIO_ALERT_MAX_RULES] = {0};
+    for (size_t i = 0; i < c->rule_count; i++) {
+        if (!c->rules[i].enabled) continue;
+        size_t size = c->rules[i].type->state_size;
+        states[i] = a->allocator.alloc(size);
+        if (!states[i]) {
+            for (size_t j = 0; j < i; j++) a->allocator.free(states[j]);
+            curio_alert_config_free(&copy);
+            return false;
+        }
+        memset(states[i], 0, size);
+    }
+    clear_states(a);
+    curio_alert_config_free(&a->config);
+    a->config = copy;
+    memcpy(a->states, states, sizeof(states));
     a->count = 0;
     a->shown_ms = 0;
     return true;
 }
 
-static host_track_t *track_for(rule_track_t *r, const char *id)
+static void remove_at(curio_alerts_t *a, size_t i)
 {
-    host_track_t *empty = NULL;
-    for (size_t i = 0; i < CURIO_MAX_HOSTS; i++) {
-        if (r->hosts[i].used && !strcmp(r->hosts[i].host_id, id))
-            return &r->hosts[i];
-        if (!r->hosts[i].used)
-            empty = &r->hosts[i];
-    }
-    if (!empty)
-        return NULL;
-    empty->used = true;
-    strcpy(empty->host_id, id);
-    return empty;
+    a->count--;
+    memmove(a->queue+i, a->queue+i+1, (a->count-i)*sizeof(a->queue[0]));
+    memmove(a->keys+i, a->keys+i+1, (a->count-i)*sizeof(a->keys[0]));
 }
 
 static void pop(curio_alerts_t *a, uint64_t now)
 {
-    if (!a->count)
-        return;
-    memmove(a->queue, a->queue + 1, (--a->count) * sizeof(a->queue[0]));
+    if (!a->count) return;
+    remove_at(a, 0);
     a->shown_ms = now;
 }
-
-static void invalidate_pending(curio_alerts_t *a, const char *rule, const char *host)
+typedef struct { curio_alerts_t *alerts; const curio_alert_rule_t *rule; uint64_t now; } delivery_t;
+static void cancel(void *ctx, const char *key)
 {
-    for (size_t i = 1; i < a->count;) {
-        if (!strcmp(a->queue[i].rule_id, rule) && !strcmp(a->queue[i].host_id, host)) {
-            memmove(a->queue + i, a->queue + i + 1, (--a->count - i) * sizeof(a->queue[0]));
-        } else
-            i++;
-    }
+    delivery_t *d = ctx;
+    for (size_t i = 1; i < d->alerts->count;)
+        if (!strcmp(d->alerts->queue[i].rule_id, d->rule->id) &&
+            !strcmp(d->alerts->keys[i], key)) remove_at(d->alerts, i);
+        else i++;
 }
 
-static void enqueue(curio_alerts_t *a, const curio_alert_rule_t *r, const curio_host_t *h,
-                    const curio_agent_t *agent, double value, uint64_t now)
+static void emit(void *ctx, const char *key, const curio_alert_notification_t *notification)
 {
+    delivery_t *d = ctx;
+    curio_alerts_t *a = d->alerts;
+    const curio_alert_rule_t *r = d->rule;
     for (size_t i = 0; i < a->count; i++)
-        if (!strcmp(a->queue[i].rule_id, r->id) &&
-            !strcmp(a->queue[i].host_id, h->host_id) &&
-            !strcmp(a->queue[i].agent_id, agent ? agent->id : ""))
-            return;
-    curio_alert_notification_t n = {0};
+        if (!strcmp(a->queue[i].rule_id, r->id) && !strcmp(a->keys[i], key)) return;
+    if (a->count == CURIO_ALERT_QUEUE) { a->dropped++; return; }
+    curio_alert_notification_t n = *notification;
     n.id = ++a->next_id;
-    n.kind = r->type == CURIO_ALERT_AGENT_DONE ? CURIO_ALERT_INFO : CURIO_ALERT_WARNING;
     strcpy(n.rule_id, r->id);
-    strcpy(n.host_id, h->host_id);
-    if (agent)
-        strcpy(n.agent_id, agent->id);
-    n.sound = r->sound;
-    n.vibrate = r->vibrate;
-    n.flash = r->flash;
-    n.vibration_strength = a->config.vibration_strength;
+    n.sound = r->sound; n.vibrate = r->vibrate; n.flash = r->flash;
     n.display_s = r->display_s;
-    n.volume = a->config.volume;
-    if (r->type == CURIO_ALERT_AGENT_DONE) {
-        const char *name = agent->brand[0] && strcmp(agent->name, agent->brand)
-                               ? agent->name
-                               : agent->project[0] ? agent->project : agent->name;
-        const char *brand = agent->brand[0] ? agent->brand : agent->name;
-        const char *project = agent->project[0] && strcmp(name, agent->project)
-                                  ? agent->project
-                                  : NULL;
-        strcpy(n.title, "Agent finished");
-        snprintf(n.body, sizeof(n.body), "%s", name);
-        snprintf(n.detail, sizeof(n.detail), "%s | %s", brand, h->host_name);
-        if (project && strlen(n.detail) + 3 + strlen(project) < sizeof(n.detail)) {
-            strcat(n.detail, " | ");
-            strcat(n.detail, project);
-        }
-    } else if (r->type == CURIO_ALERT_METRIC_HIGH) {
-        strcpy(n.title, "Metric high");
-        snprintf(n.body, sizeof(n.body), "%s", h->host_name);
-        char formatted[64];
-        curio_format_metric(formatted, sizeof(formatted), value, r->unit);
-        snprintf(n.detail, sizeof(n.detail), "%s/%s: %.29s", r->source_id, r->key, formatted);
-    } else {
-        strcpy(n.title, "Host offline");
-        snprintf(n.body, sizeof(n.body), "%s", h->host_name);
-        snprintf(n.detail, sizeof(n.detail), "%s", h->host_id);
-    }
-    if (a->count == CURIO_ALERT_QUEUE) {
-        a->dropped++;
-        return;
-    }
+    n.volume = a->config.volume; n.vibration_strength = a->config.vibration_strength;
     size_t index = a->count;
     if (n.kind == CURIO_ALERT_WARNING)
         for (size_t i = a->count ? 1 : 0; i < a->count; i++)
-            if (a->queue[i].kind == CURIO_ALERT_INFO) {
-                index = i;
-                break;
-            }
-    memmove(a->queue + index + 1, a->queue + index,
-            (a->count - index) * sizeof(a->queue[0]));
+            if (a->queue[i].kind == CURIO_ALERT_INFO) { index = i; break; }
+    memmove(a->queue+index+1, a->queue+index, (a->count-index)*sizeof(a->queue[0]));
+    memmove(a->keys+index+1, a->keys+index, (a->count-index)*sizeof(a->keys[0]));
     a->queue[index] = n;
-    a->count++;
-    if (a->count == 1)
-        a->shown_ms = now;
-}
-
-static void tick_agents(curio_alerts_t *a, rule_track_t *rt, const curio_alert_rule_t *r,
-                        const curio_host_t *h, uint64_t now)
-{
-    host_track_t *t = track_for(rt, h->host_id);
-    if (!t)
-        return;
-    agent_track_t *agents = rt->agents + (t - rt->hosts) * CURIO_MAX_AGENTS;
-    const curio_source_t *s = curio_host_source(h, r->source_id);
-    if (curio_host_health(h, now) == CURIO_HEALTH_OFFLINE || !s || s->kind != CURIO_SOURCE_AGENTS || curio_source_health(s, now) != CURIO_HEALTH_FRESH) {
-        memset(agents, 0, CURIO_MAX_AGENTS * sizeof(*agents));
-        return;
-    }
-    for (size_t k = 0; k < CURIO_MAX_AGENTS; k++) {
-        if (!agents[k].seen) continue;
-        bool present = false;
-        for (size_t j = 0; j < s->agent_count; j++)
-            present |= !strcmp(agents[k].id, s->agents[j].id);
-        if (!present) agents[k].seen = false;
-    }
-    for (size_t j = 0; j < s->agent_count; j++) {
-        const curio_agent_t *agent = &s->agents[j];
-        agent_track_t *entry = NULL;
-        for (size_t k = 0; k < CURIO_MAX_AGENTS; k++)
-            if (agents[k].seen && !strcmp(agents[k].id, agent->id)) {
-                entry = &agents[k];
-                break;
-            }
-        if (entry) {
-            bool complete = entry->state == CURIO_STATE_WORKING &&
-                            (agent->state == CURIO_STATE_DONE ||
-                             (r->include_idle && agent->state == CURIO_STATE_IDLE));
-            if (complete)
-                enqueue(a, r, h, agent, 0, now);
-            entry->state = agent->state;
-        } else
-            for (size_t k = 0; k < CURIO_MAX_AGENTS; k++)
-                if (!agents[k].seen) {
-                    strcpy(agents[k].id, agent->id);
-                    agents[k].state = agent->state;
-                    agents[k].seen = true;
-                    break;
-                }
-    }
-}
-
-static void tick_metric(curio_alerts_t *a, rule_track_t *rt, const curio_alert_rule_t *r,
-                        const curio_host_t *h, uint64_t now)
-{
-    host_track_t *t = track_for(rt, h->host_id);
-    if (!t)
-        return;
-    const curio_source_t *s = curio_host_source(h, r->source_id);
-    const curio_metric_t *m = curio_source_metric(s, r->key);
-    if (!s || s->kind != CURIO_SOURCE_METRICS ||
-        curio_host_health(h, now) == CURIO_HEALTH_OFFLINE ||
-        curio_source_health(s, now) != CURIO_HEALTH_FRESH || !m || !m->has_value ||
-        curio_metric_age(m, now) > s->max_age_ms || strcmp(m->unit, r->unit) ||
-        !isfinite(m->value)) {
-        t->accumulating = false;
-        return;
-    }
-    if (m->value <= r->recover) {
-        t->accumulating = false;
-        t->alarmed = false;
-        invalidate_pending(a, r->id, h->host_id);
-    } else if (m->value > r->threshold && !t->alarmed) {
-        if (!t->accumulating) {
-            t->accumulating = true;
-            t->started_ms = now;
-        } else if (elapsed(now, t->started_ms) >= (uint64_t)r->hold_s * 1000) {
-            t->alarmed = true;
-            t->accumulating = false;
-            enqueue(a, r, h, NULL, m->value, now);
-        }
-    } else
-        t->accumulating = false;
-}
-
-static void tick_offline(curio_alerts_t *a, rule_track_t *rt, const curio_alert_rule_t *r,
-                         const curio_host_t *h, uint64_t now, bool wifi)
-{
-    host_track_t *t = track_for(rt, h->host_id);
-    if (!t)
-        return;
-    if (!wifi) {
-        t->seen_online = false;
-        t->accumulating = false;
-        return;
-    }
-    bool online = elapsed(now, h->last_report_ms) <= CURIO_OFFLINE_MS;
-    if (online) {
-        t->seen_online = true;
-        t->accumulating = false;
-        t->alarmed = false;
-        invalidate_pending(a, r->id, h->host_id);
-    } else if (t->seen_online && !t->alarmed) {
-        if (!t->accumulating) {
-            t->accumulating = true;
-            t->started_ms = now;
-        } else if (elapsed(now, t->started_ms) >= (uint64_t)r->hold_s * 1000) {
-            t->accumulating = false;
-            t->alarmed = true;
-            enqueue(a, r, h, NULL, 0, now);
-        }
-    }
+    strncpy(a->keys[index], key, sizeof(a->keys[index])-1);
+    a->keys[index][sizeof(a->keys[index])-1] = 0;
+    if (!a->count++) a->shown_ms = d->now;
 }
 
 void curio_alerts_tick(curio_alerts_t *a, const curio_core_t *core, uint64_t now, bool wifi)
 {
-    if (!a || !core || !a->tracks)
-        return;
+    if (!a || !core) return;
     if (a->count && a->queue[0].display_s &&
-        elapsed(now, a->shown_ms) >= (uint64_t)a->queue[0].display_s * 1000)
-        pop(a, now);
+        elapsed(now, a->shown_ms) >= (uint64_t)a->queue[0].display_s*1000) pop(a, now);
     for (size_t i = 0; i < a->config.rule_count; i++) {
-        const curio_alert_rule_t *r = &a->config.rules[i];
-        if (!r->enabled)
-            continue;
-        for (size_t j = 0; j < CURIO_MAX_HOSTS; j++) {
-            host_track_t *t = &a->tracks[i].hosts[j];
-            if (t->used && !curio_core_host(core, t->host_id)) {
-                memset(t, 0, sizeof(*t));
-                if (a->tracks[i].agents)
-                    memset(a->tracks[i].agents + j * CURIO_MAX_AGENTS, 0,
-                           CURIO_MAX_AGENTS * sizeof(agent_track_t));
-            }
-        }
-        for (size_t j = 0; j < CURIO_MAX_HOSTS; j++) {
-            const curio_host_t *h = &core->hosts[j];
-            if (!h->occupied || (strcmp(r->host_id, "*") && strcmp(r->host_id, h->host_id)))
-                continue;
-            if (r->type == CURIO_ALERT_AGENT_DONE)
-                tick_agents(a, &a->tracks[i], r, h, now);
-            else if (r->type == CURIO_ALERT_METRIC_HIGH)
-                tick_metric(a, &a->tracks[i], r, h, now);
-            else
-                tick_offline(a, &a->tracks[i], r, h, now, wifi);
-        }
+        if (!a->states[i]) continue;
+        delivery_t d = {a, &a->config.rules[i], now};
+        d.rule->type->evaluate(a->states[i], d.rule->options, core, now, wifi, emit, cancel, &d);
     }
 }
 

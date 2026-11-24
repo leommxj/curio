@@ -1,0 +1,35 @@
+.status-card .metric-title {
+  position: absolute;
+  left: 8px;
+  top: 6px;
+  width: calc(100% - 16px);
+}
+.status-card .metric-status {
+  position: absolute;
+  left: 8px;
+  top: 25px;
+  width: calc(100% - 16px);
+  height: 31px;
+  font-size: 26px;
+  line-height: 31px;
+  white-space: nowrap;
+}
+.status-card.short-row:not(.narrow) .metric-title { width: calc(50% - 18px); }
+.status-card.short-row:not(.narrow) .metric-status {
+  top: 3px;
+  left: 50%;
+  width: calc(50% - 10px);
+  text-align: right;
+}
+.status-card .status-detail {
+  position: absolute;
+  left: 8px;
+  top: 60px;
+  width: calc(100% - 16px);
+  max-height: calc(100% - 66px);
+}
+.status-card.short-row .status-detail {
+  top: 40px;
+  max-height: calc(100% - 46px);
+  white-space: nowrap;
+}

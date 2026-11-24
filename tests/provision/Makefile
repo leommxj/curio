@@ -11,6 +11,7 @@ CFLAGS ?= -std=c11 -O1 -g -Wall -Wextra -Werror -Wpedantic -Wno-unused-value
 SOURCES := test_provision.c $(ROOT)/firmware/components/curio_config/curio_config.c $(wildcard $(YAML)/src/*.c) \
            $(ROOT)/firmware/components/curio_core/curio_core.c $(ROOT)/firmware/components/curio_layout/curio_layout.c \
            $(ROOT)/firmware/components/curio_alerts/curio_alerts.c $(ROOT)/.deps/cJSON/cJSON.c
+include ../../scripts/lib/modules.mk
 HEADERS := $(ROOT)/firmware/main/curio_settings.c $(ROOT)/firmware/main/curio_provision.c \
            $(ROOT)/firmware/main/curio_app.h $(wildcard stubs/*.h ../settings/stubs/*.h ../settings/stubs/freertos/*.h)
 
@@ -21,6 +22,7 @@ $(BUILD)/test_provision: $(SOURCES) $(HEADERS)
 	@mkdir -p $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(SOURCES) -lm -pthread -o $@
 
+$(BUILD)/test_provision: $(MODULE_DEPENDENCIES)
 
 sanitize:
 	@mkdir -p $(BUILD)

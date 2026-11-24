@@ -1,0 +1,25 @@
+[
+  {
+    "name": "manual binding",
+    "valid": true,
+    "options": {
+      "host": "future-host",
+      "source": "service.api"
+    }
+  },
+  {
+    "name": "missing source",
+    "valid": false,
+    "options": {
+      "host": "h"
+    }
+  },
+  {
+    "name": "wrong source type",
+    "valid": false,
+    "options": {
+      "host": "h",
+      "source": 1
+    }
+  }
+]

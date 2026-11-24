@@ -1,0 +1,29 @@
+[
+  {
+    "name": "defaults",
+    "valid": true,
+    "options": {}
+  },
+  {
+    "name": "minimum hold",
+    "valid": true,
+    "options": {
+      "host": "h",
+      "hold": 5
+    }
+  },
+  {
+    "name": "short hold",
+    "valid": false,
+    "options": {
+      "hold": 4
+    }
+  },
+  {
+    "name": "unrelated source",
+    "valid": false,
+    "options": {
+      "source": "custom"
+    }
+  }
+]

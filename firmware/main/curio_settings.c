@@ -38,16 +38,19 @@ static esp_err_t alerts_prepare(const curio_alert_config_t *config, curio_alerts
     return ESP_OK;
 }
 
-static void snapshot(curio_config_t *config)
+static bool snapshot(curio_config_t *config)
 {
     xSemaphoreTake(curio_app.mutex, portMAX_DELAY);
+    memset(config, 0, sizeof(*config));
     config->device = curio_app.device;
-    config->display = curio_app.layout;
-    config->alerts = curio_app.alert_config;
+    bool ok = curio_layout_clone(&config->display, &curio_app.layout) &&
+        curio_alert_config_clone(&config->alerts, &curio_app.alert_config);
     config->access = curio_app.access;
     config->network = curio_app.network;
     config->tls = curio_app.tls;
     xSemaphoreGive(curio_app.mutex);
+    if (!ok) curio_config_free(config);
+    return ok;
 }
 
 static esp_err_t persist(const char *yaml, uint32_t revision)
@@ -77,9 +80,8 @@ static esp_err_t commit(curio_config_t *config)
     bool device_changed = config->device.brightness != curio_app.device.brightness ||
         strcmp(config->device.ntp_server, curio_app.device.ntp_server) ||
         config->device.rotation != curio_app.device.rotation || config->device.auto_rotate != curio_app.device.auto_rotate;
-    bool display_changed = memcmp(&config->display, &curio_app.layout, sizeof(config->display)) != 0;
-    bool rules_changed = config->alerts.rule_count != curio_app.alert_config.rule_count ||
-        memcmp(config->alerts.rules, curio_app.alert_config.rules, sizeof(config->alerts.rules)) != 0;
+    bool display_changed = !curio_layout_equal(&config->display, &curio_app.layout);
+    bool rules_changed = !curio_alert_rules_equal(&config->alerts, &curio_app.alert_config);
     bool alerts_changed = rules_changed || config->alerts.volume != curio_app.alert_config.volume ||
         config->alerts.vibration_strength != curio_app.alert_config.vibration_strength ||
         config->alerts.flash_enabled != curio_app.alert_config.flash_enabled;
@@ -98,6 +100,8 @@ static esp_err_t commit(curio_config_t *config)
     if (result == ESP_OK) {
         xSemaphoreTake(curio_app.mutex, portMAX_DELAY);
         curio_app.device = config->device;
+        curio_layout_free(&curio_app.layout);
+        curio_alert_config_free(&curio_app.alert_config);
         curio_app.layout = config->display;
         curio_app.alert_config = config->alerts;
         curio_app.access = config->access;
@@ -108,6 +112,8 @@ static esp_err_t commit(curio_config_t *config)
             curio_alerts_set_volume(curio_app.alerts, config->alerts.volume);
             curio_alerts_set_vibration_strength(curio_app.alerts, config->alerts.vibration_strength);
         }
+        memset(&config->display, 0, sizeof(config->display));
+        memset(&config->alerts, 0, sizeof(config->alerts));
         xSemaphoreGive(curio_app.mutex);
         cJSON_free(document);
         document = yaml;
@@ -130,7 +136,9 @@ static void initial_token(char *out)
 esp_err_t curio_settings_init(void)
 {
     ready = false;
-    curio_layout_default(&curio_app.layout);
+    curio_layout_free(&curio_app.layout);
+    curio_alert_config_free(&curio_app.alert_config);
+    if (!curio_layout_default(&curio_app.layout)) return ESP_ERR_NO_MEM;
     curio_alert_config_default(&curio_app.alert_config);
     curio_app.device = (curio_device_config_t){.brightness = 75, .ntp_server = "pool.ntp.org"};
     initial_token(curio_app.access.admin_token);
@@ -144,7 +152,8 @@ esp_err_t curio_settings_init(void)
     if (result != ESP_OK) return result;
     curio_config_t *config = curio_alloc(sizeof(*config)), *candidate = curio_alloc(sizeof(*candidate));
     if (!config || !candidate) { free(config); free(candidate); return ESP_ERR_NO_MEM; }
-    snapshot(config);
+    if (!snapshot(config)) { free(config); free(candidate); return ESP_ERR_NO_MEM; }
+    memset(candidate, 0, sizeof(*candidate));
     bool loaded = false;
     document_revision = 0;
     for (unsigned slot = 0; slot < 2; slot++) {
@@ -159,13 +168,16 @@ esp_err_t curio_settings_init(void)
             memcpy(&revision, blob, sizeof(revision));
             if ((!loaded || revision >= document_revision) && revision < UINT32_MAX - 2 &&
                 curio_config_parse((char *)blob + 4, size - 5, candidate, error, sizeof(error))) {
+                curio_config_free(config);
                 *config = *candidate;
+                memset(candidate, 0, sizeof(*candidate));
                 document_revision = revision;
                 loaded = true;
             }
         }
         free(blob);
     }
+    curio_config_free(candidate);
     free(candidate);
     char *yaml = result == ESP_OK ? curio_config_yaml(config) : NULL;
     if (result == ESP_OK && !yaml) result = ESP_ERR_NO_MEM;
@@ -183,8 +195,12 @@ esp_err_t curio_settings_init(void)
             curio_alerts_destroy(curio_app.alerts);
             curio_app.alerts = next;
             curio_app.device = config->device;
+            curio_layout_free(&curio_app.layout);
+            curio_alert_config_free(&curio_app.alert_config);
             curio_app.layout = config->display;
             curio_app.alert_config = config->alerts;
+            memset(&config->display, 0, sizeof(config->display));
+            memset(&config->alerts, 0, sizeof(config->alerts));
             curio_app.access = config->access;
             curio_app.network = config->network;
             curio_app.tls = config->tls;
@@ -196,6 +212,7 @@ esp_err_t curio_settings_init(void)
         }
     }
     cJSON_free(yaml);
+    curio_config_free(config);
     free(config);
     return result;
 }
@@ -217,6 +234,7 @@ esp_err_t curio_settings_import(const char *yaml, size_t size, uint32_t revision
     if (!ready) return ESP_ERR_INVALID_STATE;
     curio_config_t *config = curio_alloc(sizeof(*config));
     if (!config) return ESP_ERR_NO_MEM;
+    memset(config, 0, sizeof(*config));
     if (!curio_config_parse(yaml, size, config, error, error_size)) { free(config); return ESP_ERR_INVALID_ARG; }
     xSemaphoreTake(write_mutex, portMAX_DELAY);
     esp_err_t result = revision == document_revision ? ESP_OK : ESP_ERR_INVALID_VERSION;
@@ -228,6 +246,7 @@ esp_err_t curio_settings_import(const char *yaml, size_t size, uint32_t revision
     }
     if (result == ESP_OK) result = commit(config);
     xSemaphoreGive(write_mutex);
+    curio_config_free(config);
     free(config);
     return result;
 }
@@ -239,7 +258,7 @@ static esp_err_t change(change_t kind, unsigned value, const char *page_id, cons
     curio_config_t *config = curio_alloc(sizeof(*config));
     if (!config) return ESP_ERR_NO_MEM;
     xSemaphoreTake(write_mutex, portMAX_DELAY);
-    snapshot(config);
+    if (!snapshot(config)) { xSemaphoreGive(write_mutex); free(config); return ESP_ERR_NO_MEM; }
     esp_err_t result = ESP_OK;
     switch (kind) {
     case CHANGE_BRIGHTNESS: config->device.brightness = value; break;
@@ -256,8 +275,8 @@ static esp_err_t change(change_t kind, unsigned value, const char *page_id, cons
             if (strcmp(page->id, page_id)) continue;
             for (size_t w = 0; w < page->widget_count; w++) {
                 curio_widget_config_t *widget = &page->widgets[w];
-                if (widget->type == CURIO_WIDGET_AGENTS) {
-                    widget->auto_page = value;
+                if (widget->type->set_paging) {
+                    widget->type->set_paging(widget->options, value);
                     result = ESP_OK;
                 }
             }
@@ -265,6 +284,7 @@ static esp_err_t change(change_t kind, unsigned value, const char *page_id, cons
     }
     if (result == ESP_OK) result = commit(config);
     xSemaphoreGive(write_mutex);
+    curio_config_free(config);
     free(config);
     return result;
 }

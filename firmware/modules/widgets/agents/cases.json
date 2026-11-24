@@ -1,0 +1,67 @@
+[
+  {
+    "name": "defaults",
+    "valid": true,
+    "options": {}
+  },
+  {
+    "name": "generic source",
+    "valid": true,
+    "options": {
+      "source": "custom.agents",
+      "hosts": [
+        "a",
+        "b"
+      ],
+      "filter": "working"
+    }
+  },
+  {
+    "name": "empty hosts",
+    "valid": true,
+    "options": {
+      "hosts": []
+    }
+  },
+  {
+    "name": "hosts wrong type",
+    "valid": false,
+    "options": {
+      "hosts": "one"
+    }
+  },
+  {
+    "name": "duplicate hosts",
+    "valid": false,
+    "options": {
+      "hosts": [
+        "a",
+        "a"
+      ]
+    }
+  },
+  {
+    "name": "wildcard mixed",
+    "valid": false,
+    "options": {
+      "hosts": [
+        "*",
+        "a"
+      ]
+    }
+  },
+  {
+    "name": "invalid filter",
+    "valid": false,
+    "options": {
+      "filter": "other"
+    }
+  },
+  {
+    "name": "paging type",
+    "valid": false,
+    "options": {
+      "auto_page": 1
+    }
+  }
+]

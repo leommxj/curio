@@ -1,0 +1,29 @@
+[
+  {
+    "name": "manual host",
+    "valid": true,
+    "options": {
+      "host": "future-host"
+    }
+  },
+  {
+    "name": "missing host",
+    "valid": false,
+    "options": {}
+  },
+  {
+    "name": "invalid host",
+    "valid": false,
+    "options": {
+      "host": "bad host"
+    }
+  },
+  {
+    "name": "extra source",
+    "valid": false,
+    "options": {
+      "host": "h",
+      "source": "s"
+    }
+  }
+]

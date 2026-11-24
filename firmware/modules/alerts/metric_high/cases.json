@@ -1,0 +1,97 @@
+[
+  {
+    "name": "threshold",
+    "valid": true,
+    "options": {
+      "host": "h",
+      "source": "system.memory",
+      "key": "usage_pct",
+      "unit": "percent",
+      "threshold": 90,
+      "recover": 80
+    }
+  },
+  {
+    "name": "custom metric",
+    "valid": true,
+    "options": {
+      "host": "h",
+      "source": "custom",
+      "key": "temp",
+      "unit": "celsius",
+      "threshold": 99.5,
+      "recover": 90,
+      "hold": 1
+    }
+  },
+  {
+    "name": "missing host",
+    "valid": false,
+    "options": {
+      "source": "s",
+      "key": "k",
+      "unit": "percent",
+      "threshold": 90,
+      "recover": 80
+    }
+  },
+  {
+    "name": "missing threshold",
+    "valid": false,
+    "options": {
+      "host": "h",
+      "source": "s",
+      "key": "k",
+      "unit": "percent",
+      "recover": 80
+    }
+  },
+  {
+    "name": "missing recovery",
+    "valid": false,
+    "options": {
+      "host": "h",
+      "source": "s",
+      "key": "k",
+      "unit": "percent",
+      "threshold": 90
+    }
+  },
+  {
+    "name": "invalid recovery",
+    "valid": false,
+    "options": {
+      "host": "h",
+      "source": "s",
+      "key": "k",
+      "unit": "percent",
+      "threshold": 90,
+      "recover": 90
+    }
+  },
+  {
+    "name": "wildcard",
+    "valid": false,
+    "options": {
+      "host": "*",
+      "source": "s",
+      "key": "k",
+      "unit": "percent",
+      "threshold": 90,
+      "recover": 80
+    }
+  },
+  {
+    "name": "hold type",
+    "valid": false,
+    "options": {
+      "host": "h",
+      "source": "s",
+      "key": "k",
+      "unit": "percent",
+      "threshold": 90,
+      "recover": 80,
+      "hold": "60"
+    }
+  }
+]

@@ -1,0 +1,15 @@
+.machine-value {
+  margin-top: 5px;
+  align-items: baseline;
+  font-size: 14px;
+  display: flex;
+  justify-content: space-between;
+}
+.machine-card {
+  padding: 8px 10px;
+  font-size: 17px;
+}
+.machine-value .metric-value {
+  font-size: 22px;
+  line-height: 27px;
+}

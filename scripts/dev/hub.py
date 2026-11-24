@@ -13,6 +13,10 @@ import subprocess
 import tempfile
 import threading
 import time
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from modules import generate
 
 ROOT = Path(__file__).resolve().parents[2]
 CORE = ROOT / 'firmware/components/curio_core'
@@ -25,8 +29,9 @@ WEB = ROOT / 'firmware/main/web'
 
 def build_library():
     destination = ROOT / 'build/libcurio_dev.so'
-    sources = [ROOT / 'scripts/dev/bridge.c', CORE / 'curio_core.c', LAYOUT / 'curio_layout.c', ALERTS / 'curio_alerts.c', CONFIG / 'curio_config.c', *sorted((YAML / 'src').glob('*.c')), ROOT / '.deps/cJSON/cJSON.c']
-    includes = [CORE / 'include', LAYOUT / 'include', ALERTS / 'include', CONFIG / 'include', YAML / 'include', YAML / 'src', ROOT / '.deps/cJSON']
+    modules = generate()
+    sources = [*modules['portable'], ROOT / 'scripts/dev/bridge.c', CORE / 'curio_core.c', LAYOUT / 'curio_layout.c', ALERTS / 'curio_alerts.c', CONFIG / 'curio_config.c', *sorted((YAML / 'src').glob('*.c')), ROOT / '.deps/cJSON/cJSON.c']
+    includes = [ROOT / 'firmware/modules/include', CORE / 'include', LAYOUT / 'include', ALERTS / 'include', CONFIG / 'include', YAML / 'include', YAML / 'src', ROOT / '.deps/cJSON']
     inputs = sources + [header for directory in includes for header in directory.glob('*.h')]
     if not destination.exists() or any(p.stat().st_mtime > destination.stat().st_mtime for p in inputs):
         destination.parent.mkdir(exist_ok=True)
@@ -198,7 +203,7 @@ def main():
             files = {'/': ('index.html', 'text/html'), '/index.html': ('index.html', 'text/html'), '/style.css': ('style.css', 'text/css'), '/app.js': ('app.js', 'application/javascript'), '/vendor/js-yaml.min.js': ('vendor/js-yaml.min.js', 'application/javascript')}
             if self.path in files:
                 name, mime = files[self.path]
-                self.respond(200, (WEB / name).read_bytes(), mime + '; charset=utf-8')
+                self.respond(200, ((generate()['output'] if name in ('app.js', 'style.css') else WEB) / name).read_bytes(), mime + '; charset=utf-8')
             elif self.path == '/healthz':
                 self.respond(200, {'v': 2, 'status': 'ok', 'app': 'curio-dev'})
             elif self.path in ('/api/v2/state', '/api/v2/catalog'):

@@ -273,21 +273,6 @@ aside {
   height: 30px;
   overflow-wrap: anywhere;
 }
-.machine-value {
-  margin-top: 5px;
-  align-items: baseline;
-  font-size: 14px;
-  display: flex;
-  justify-content: space-between;
-}
-.machine-card {
-  padding: 8px 10px;
-  font-size: 17px;
-}
-.machine-value .metric-value {
-  font-size: 22px;
-  line-height: 27px;
-}
 .screen-icons {
   display: flex;
   align-items: center;
@@ -297,66 +282,6 @@ aside {
   width: 78px;
   height: 20px;
 }
-.agent-card {
-  padding: 0;
-  touch-action: none;
-  user-select: none;
-}
-.filters {
-  display: flex;
-  height: 44px;
-  gap: 4px;
-  padding: 0 4px;
-}
-.filters button {
-  flex: 1;
-}
-.agent-row {
-  height: 47px;
-  margin-top: 0;
-  padding: 2px 10px;
-  background: #1c2b3b;
-}
-.agent-name {
-  display: flex;
-  justify-content: space-between;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.agent-name span {
-  flex: 0 0 auto;
-  max-width: 48%;
-  text-align: right;
-  margin-left: 8px;
-  font-size: 18px;
-  color: #6ed6bd;
-}
-.agent-detail {
-  font-size: 14px;
-  color: #94a6bc;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.agent-footer {
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: 3px;
-  height: 25px;
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  color: #94a6bc;
-}
-#screen .agent-footer button {
-  min-height: 24px;
-  height: 24px;
-  padding: 0 8px;
-}
 .empty {
   padding: 20px;
   color: #94a6bc;
@@ -364,27 +289,6 @@ aside {
 }
 [hidden] {
   display: none !important;
-}
-
-.agent-summary {
-  color: #d0b381;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 25px;
-  height: 16px;
-  font-size: 12px;
-}
-.agent-summary:empty {
-  display: none;
-}
-.agent-name strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .grid-cell {
   position: absolute;
@@ -575,35 +479,6 @@ summary:focus-visible {
   color: #86917d;
   letter-spacing: 0.6px;
   font-weight: 400;
-}
-.agent-name strong {
-  font-size: 18px;
-  font-weight: 500;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.agent-name .state-blocked {
-  color: #e6bb7d;
-}
-.agent-name .state-idle,
-.agent-name .state-done {
-  color: #9bacbd;
-}
-.catalog-agent {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 4px 12px;
-}
-.catalog-agent strong {
-  font-weight: 500;
-}
-.catalog-agent span {
-  color: #78876c;
-  font-size: 12px;
-}
-.catalog-agent small {
-  grid-column: 1 / -1;
 }
 .data-row > strong {
   font-size: 13px;
@@ -870,70 +745,6 @@ summary:focus-visible {
   line-height: 17px;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.status-card .metric-title {
-  position: absolute;
-  left: 8px;
-  top: 6px;
-  width: calc(100% - 16px);
-}
-.status-card .metric-status {
-  position: absolute;
-  left: 8px;
-  top: 25px;
-  width: calc(100% - 16px);
-  height: 31px;
-  font-size: 26px;
-  line-height: 31px;
-  white-space: nowrap;
-}
-.status-card.short-row:not(.narrow) .metric-title { width: calc(50% - 18px); }
-.status-card.short-row:not(.narrow) .metric-status {
-  top: 3px;
-  left: 50%;
-  width: calc(50% - 10px);
-  text-align: right;
-}
-.status-card .status-detail {
-  position: absolute;
-  left: 8px;
-  top: 60px;
-  width: calc(100% - 16px);
-  max-height: calc(100% - 66px);
-}
-.status-card.short-row .status-detail {
-  top: 40px;
-  max-height: calc(100% - 46px);
-  white-space: nowrap;
-}
-
-.clock-card {
-  padding: 0;
-}
-.clock-title, .clock-date, .clock-time {
-  position: absolute;
-  left: 8px;
-  width: calc(100% - 16px);
-  white-space: nowrap;
-}
-.clock-title, .clock-date {
-  font-size: 14px;
-  line-height: 18px;
-  color: #94a6bc;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.clock-title {
-  top: 6px;
-}
-.clock-date {
-  bottom: 7px;
-  text-align: center;
-}
-.clock-time {
-  font-variant-numeric: tabular-nums;
-  text-align: center;
 }
 
 .setup-page header span {

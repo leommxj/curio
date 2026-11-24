@@ -153,6 +153,9 @@ static void test_quick_mute(void)
     curio_feedback_set_muted(true, true);
     worker(NULL);
     assert(closes == 1 && stops == 1);
+    status = curio_feedback_status();
+    assert(status.audio.queued == 2 && status.audio.dropped == 1);
+    assert(status.vibration.queued == 2 && status.vibration.dropped == 1);
     curio_feedback_set_muted(false, false);
     worker(NULL);
     assert(closes == 1 && stops == 1);
@@ -160,6 +163,8 @@ static void test_quick_mute(void)
     status = curio_feedback_status();
     assert(status.audio.played == 2 && status.vibration.played == 2);
     assert(!status.audio.muted && !status.vibration.muted && !status.audio.failed && !status.vibration.failed);
+    assert(status.audio.queued == status.audio.played + status.audio.dropped);
+    assert(status.vibration.queued == status.vibration.played + status.vibration.dropped);
 }
 static void test_flash(void)
 {
@@ -174,10 +179,18 @@ static void test_flash(void)
     assert(curio_feedback_play(0, 0, true));
     curio_feedback_set_flash_enabled(false); worker(NULL);
     assert(flash_on == 2);
+    status = curio_feedback_status();
+    assert(status.flash.queued == 2 && status.flash.played == 1 && status.flash.dropped == 1);
     curio_feedback_set_flash_enabled(true);
     disable_on_delay = true;
     assert(curio_feedback_play(0, 0, true)); worker(NULL);
     assert(flash_on == 3 && flash_level == 1 && !curio_feedback_status().flash.busy);
+    assert(curio_feedback_status().flash.played == 2);
+    reset(); curio_feedback_set_flash_enabled(true); disable_on_delay = true;
+    assert(curio_feedback_play(40, 0, true)); worker(NULL);
+    status = curio_feedback_status();
+    assert(status.audio.played == 1 && flash_on == 0);
+    assert(status.flash.queued == 1 && status.flash.dropped == 1 && !status.flash.played);
     for (unsigned failure = 0; failure < 3; failure++) {
         reset(); curio_feedback_set_flash_enabled(true);
         fail_flash_config = failure == 0; fail_flash_on = failure == 1; fail_flash_off = failure == 2;

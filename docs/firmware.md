@@ -19,7 +19,7 @@ make firmware
 
 Install the firmware with `make flash`, then use one of these setup paths:
 
-1. On an unconfigured device, join the `Curio-…` Wi-Fi network using the random password shown on the board. Open `http://192.168.4.1/setup.html`, enter the network SSID, password and hostname, then save. An empty Wi-Fi password selects an open network. Download the certificate and full YAML, then select **Connect** to restart the device. The setup page requires no separate login because its temporary AP has the displayed WPA2 password. There is no captive portal or DNS redirect; enter the address manually.
+1. On an unconfigured device, join the `Curio-…` Wi-Fi network using the random password shown on the board. Open `http://192.168.4.1/setup.html`, enter the network SSID, password and hostname, then save. An empty Wi-Fi password selects an open network. Download the certificate and full YAML, then select **Connect** to restart the device. The setup page requires no separate login because its temporary AP has the displayed WPA2 password. Enter the address manually.
 2. For setup from a computer, install OpenSSL, run `make configure SSID="YourWiFi"` and then `make provision`. The latter writes the YAML over Iris, by USB or paired Wi-Fi, and restarts the device. Provisioning is accepted only while the device is unconfigured or its physical Setup AP is open. An ordinary network error never opens that AP. The configuration tool prompts for the Wi-Fi password; `ARGS="--password-env VARIABLE"` reads it from an environment variable, and `ARGS="--open-wifi"` selects an open network. Use `ARGS="--ip 192.168.1.50"` to include a device IP address in the certificate SAN.
 
 `make configure` creates `firmware/local/` and refuses to overwrite an existing directory. Its files are:
@@ -69,6 +69,12 @@ If the saved Wi-Fi credentials are wrong, open **Settings → Wi-Fi** on the dev
 ## Runtime and controls
 
 Portable components separate data state (`curio_core`), YAML (`curio_config`), widget geometry and bindings (`curio_layout`), and alert rules (`curio_alerts`). Device integration lives in `main`: `curio_settings` owns persistent configuration, `curio_network` owns HTTPS and network time, and `curio_ui` renders the current page. Sensors and feedback use their own tasks. The development Hub reuses the same C models through `scripts/dev/bridge.c`.
+
+Widget and alert implementations live in `firmware/modules/widgets/<type>/` and `firmware/modules/alerts/<type>/`. Each directory owns its configuration, runtime, web interface and tests. `firmware/modules/registry.json` is the build registry; see [modules.md](modules.md) for interfaces and extension steps.
+
+The `machine` widget binds fixed CPU/memory metrics. Agent widgets and completion alerts accept any source with `kind: agents`, defaulting to `herdr`.
+
+Page and rule counts have fixed limits. Type-specific options are allocated only for configured entries; only the active page creates LVGL views. Disabled rules retain their configuration but have no detection state. With no enabled rules, the application creates no alert runtime. Registered code and descriptors remain in the firmware image.
 
 The display starts before networking. Wi-Fi reconnects after disconnection; existing data becomes stale or offline according to its age. Network parsing and validation run outside the application lock, with state committed under a short lock. Request bodies, parsed objects and source storage use PSRAM. Widgets share the UI task and are destroyed when changing pages.
 

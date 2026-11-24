@@ -102,7 +102,11 @@ static bool flash_pulse(void)
 
 static void play(cue_t cue)
 {
+    cue_t queued = cue;
     cue = allowed(cue);
+    if (queued.volume && !cue.volume) atomic_fetch_add(&audio.dropped, 1);
+    if (queued.vibration_strength && !cue.vibration_strength) atomic_fetch_add(&vibration.dropped, 1);
+    if (queued.flash && !cue.flash) atomic_fetch_add(&flash.dropped, 1);
     if (!cue.volume && !cue.vibration_strength && !cue.flash) return;
     bool audio_open = false, audio_ok = false, vibration_ok = false;
     atomic_store(&audio.busy, cue.volume != 0);
@@ -139,11 +143,13 @@ static void play(cue_t cue)
     }
     if (cue.volume) atomic_fetch_add(audio_ok ? &audio.played : &audio.failed, 1);
     atomic_store(&audio.busy, false);
-    if (cue.flash && atomic_load(&flash_enabled)) {
-        atomic_store(&flash.busy, true);
-        bool flash_ok = flash_pulse();
-        atomic_fetch_add(flash_ok ? &flash.played : &flash.failed, 1);
-        atomic_store(&flash.busy, false);
+    if (cue.flash) {
+        if (atomic_load(&flash_enabled)) {
+            atomic_store(&flash.busy, true);
+            bool flash_ok = flash_pulse();
+            atomic_fetch_add(flash_ok ? &flash.played : &flash.failed, 1);
+            atomic_store(&flash.busy, false);
+        } else atomic_fetch_add(&flash.dropped, 1);
     }
 }
 

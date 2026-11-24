@@ -6,27 +6,17 @@
 #define CURIO_ALERT_MAX_RULES 8
 #define CURIO_ALERT_QUEUE 8
 
-typedef enum {
-    CURIO_ALERT_AGENT_DONE,
-    CURIO_ALERT_METRIC_HIGH,
-    CURIO_ALERT_HOST_OFFLINE
-} curio_alert_type_t;
-
 typedef enum { CURIO_ALERT_INFO, CURIO_ALERT_WARNING } curio_alert_kind_t;
+typedef struct cJSON cJSON;
+typedef struct curio_alert_type curio_alert_type_t;
 
 typedef struct {
     char id[49];
     bool enabled;
-    curio_alert_type_t type;
-    char host_id[49];
-    char source_id[49];
-    char key[49];
-    char unit[17];
-    double threshold, recover;
-    uint32_t hold_s;
-    bool include_idle;
     uint16_t display_s;
     bool sound, vibrate, flash;
+    const curio_alert_type_t *type;
+    void *options;
 } curio_alert_rule_t;
 
 typedef struct {
@@ -46,6 +36,28 @@ typedef struct {
     uint16_t display_s;
     uint8_t volume, vibration_strength;
 } curio_alert_notification_t;
+
+typedef void (*curio_alert_emit_fn)(void *, const char *, const curio_alert_notification_t *);
+typedef void (*curio_alert_cancel_fn)(void *, const char *);
+struct curio_alert_type {
+    const char *id;
+    const char *title;
+    size_t options_size, state_size;
+    const char *fields;
+    bool (*parse)(const cJSON *, void *);
+    bool (*validate)(const void *);
+    bool (*write)(cJSON *, const void *);
+    void (*describe)(const void *, char *, size_t);
+    void (*evaluate)(void *, const void *, const curio_core_t *, uint64_t, bool,
+                     curio_alert_emit_fn, curio_alert_cancel_fn, void *);
+};
+extern const curio_alert_type_t *const curio_alert_types[];
+extern const size_t curio_alert_type_count;
+const curio_alert_type_t *curio_alert_type_find(const char *id);
+bool curio_alert_config_clone(curio_alert_config_t *dst, const curio_alert_config_t *src);
+void curio_alert_config_free(curio_alert_config_t *config);
+bool curio_alert_rules_equal(const curio_alert_config_t *a, const curio_alert_config_t *b);
+bool curio_alert_config_equal(const curio_alert_config_t *a, const curio_alert_config_t *b);
 
 typedef struct curio_alerts curio_alerts_t;
 

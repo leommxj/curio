@@ -180,6 +180,8 @@ int main(void)
     curio_app.setup_active = false;
     assert(call(3, NULL, 0) == ESP_ERR_INVALID_STATE);
     curio_alerts_destroy(curio_app.alerts);
+    curio_alert_config_free(&curio_app.alert_config);
+    curio_layout_free(&curio_app.layout);
     cJSON_free(document);
     puts("Iris provisioning: chunk order, commit, persistence, setup gate and restart passed");
 }

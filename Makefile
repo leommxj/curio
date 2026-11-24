@@ -17,7 +17,7 @@ collector_binary = $(call absolute,$(BUILD_DIR))/curio-collector
 windows_dir = $(call absolute,$(BUILD_DIR))/windows
 firmware_bundle = $(FIRMWARE_BUILD_DIR)/curio-system-update.irisfw
 
-.PHONY: help deps deps-host configure provision firmware flash doctor status screenshot recover collector collector-windows \
+.PHONY: modules help deps deps-host configure provision firmware flash doctor status screenshot recover collector collector-windows \
         install-collector uninstall-collector dev-hub test test-collector test-core test-scripts \
         test-integration test-ui test-web
 
@@ -127,5 +127,8 @@ test-integration: deps-host
 test-ui: deps-host
 	$(MAKE) -C tests/ui test
 
-test-web:
+modules:
+	$(python) scripts/modules.py
+
+test-web: modules
 	$(python) -m unittest discover -s tests/web -v

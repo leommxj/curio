@@ -1,0 +1,50 @@
+[
+  {
+    "name": "default",
+    "valid": true,
+    "options": {}
+  },
+  {
+    "name": "fractional zone",
+    "valid": true,
+    "options": {
+      "utc_offset": "+05:45",
+      "seconds": true
+    }
+  },
+  {
+    "name": "minimum zone",
+    "valid": true,
+    "options": {
+      "utc_offset": "-12:00"
+    }
+  },
+  {
+    "name": "maximum zone",
+    "valid": true,
+    "options": {
+      "utc_offset": "+14:00"
+    }
+  },
+  {
+    "name": "zone overflow",
+    "valid": false,
+    "options": {
+      "utc_offset": "+14:01"
+    }
+  },
+  {
+    "name": "seconds type",
+    "valid": false,
+    "options": {
+      "seconds": 1
+    }
+  },
+  {
+    "name": "unrelated field",
+    "valid": false,
+    "options": {
+      "host": "h"
+    }
+  }
+]

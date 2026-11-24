@@ -9,6 +9,7 @@ CFLAGS ?= -std=c11 -O1 -g -Wall -Wextra -Werror -Wpedantic -Wno-unused-value
 SOURCES := test_settings.c $(ROOT)/firmware/components/curio_config/curio_config.c $(wildcard $(YAML)/src/*.c) $(ROOT)/firmware/components/curio_core/curio_core.c \
            $(ROOT)/firmware/components/curio_layout/curio_layout.c \
            $(ROOT)/firmware/components/curio_alerts/curio_alerts.c $(ROOT)/.deps/cJSON/cJSON.c
+include ../../scripts/lib/modules.mk
 HEADERS := $(ROOT)/firmware/main/curio_settings.c $(ROOT)/firmware/main/curio_settings.h \
            $(ROOT)/firmware/main/curio_app.h $(wildcard stubs/*.h stubs/freertos/*.h)
 
@@ -22,3 +23,5 @@ sanitize:
 	@mkdir -p $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer $(SOURCES) -lm -pthread -o $(BUILD)/test_settings_sanitize
 	ASAN_OPTIONS=detect_leaks=1 $(BUILD)/test_settings_sanitize
+
+$(BUILD)/test_settings: $(MODULE_DEPENDENCIES)

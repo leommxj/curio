@@ -1,0 +1,58 @@
+[
+  {
+    "name": "reported unit",
+    "valid": true,
+    "options": {
+      "host": "h",
+      "source": "custom",
+      "key": "temperature"
+    }
+  },
+  {
+    "name": "explicit unit",
+    "valid": true,
+    "options": {
+      "host": "h",
+      "source": "custom",
+      "key": "temperature",
+      "unit": "celsius"
+    }
+  },
+  {
+    "name": "missing source",
+    "valid": false,
+    "options": {
+      "host": "h",
+      "key": "temperature"
+    }
+  },
+  {
+    "name": "unit type",
+    "valid": false,
+    "options": {
+      "host": "h",
+      "source": "custom",
+      "key": "temperature",
+      "unit": 1
+    }
+  },
+  {
+    "name": "invalid host",
+    "valid": false,
+    "options": {
+      "host": "bad host",
+      "source": "custom",
+      "key": "k"
+    }
+  },
+  {
+    "name": "unknown field",
+    "valid": false,
+    "options": {
+      "host": "h",
+      "source": "s",
+      "key": "k",
+      "future": 1
+    }
+  }
+]
