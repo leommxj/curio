@@ -17,14 +17,15 @@ collector_binary = $(call absolute,$(BUILD_DIR))/curio-collector
 windows_dir = $(call absolute,$(BUILD_DIR))/windows
 firmware_bundle = $(FIRMWARE_BUILD_DIR)/curio-system-update.irisfw
 
-.PHONY: help deps deps-host configure firmware flash doctor status screenshot recover collector collector-windows \
+.PHONY: help deps deps-host configure provision firmware flash doctor status screenshot recover collector collector-windows \
         install-collector uninstall-collector dev-hub test test-collector test-core test-scripts \
         test-integration test-ui test-web
 
 help:
 	@printf '%s\n' \
 	  'make deps                           Download pinned source dependencies' \
-	  'make configure SSID="YourWiFi"       Create private firmware settings' \
+	  'make configure SSID="YourWiFi"       Create private Hub configuration' \
+	  'make provision [DEVICE=id] [CONFIG=path]  Write Hub configuration over Iris' \
 	  'make firmware                       Build firmware and update bundle' \
 	  'make flash [DEVICE=id]               Build and install through Vibe Mode' \
 	  'make flash BUNDLE=/path/file.irisfw   Install an existing bundle' \
@@ -49,6 +50,9 @@ deps-host:
 
 configure:
 	$(python) scripts/firmware/configure.py --ssid $(call quote,$(SSID)) $(ARGS)
+
+provision: deps
+	$(python) scripts/firmware/provision.py $(if $(CONFIG),--config $(call quote,$(CONFIG))) $(device)
 
 firmware: deps
 	$(python) scripts/firmware/build.py --build-dir $(call quote,$(FIRMWARE_BUILD_DIR)) $(if $(IDF_PATH),--idf-path $(call quote,$(IDF_PATH)))
@@ -109,6 +113,7 @@ test-core: deps-host
 	$(MAKE) -C tests/alerts test
 	$(MAKE) -C tests/config test
 	$(MAKE) -C tests/settings test
+	$(MAKE) -C tests/provision test
 	$(MAKE) -C tests/battery test
 	$(MAKE) -C tests/orientation test
 	$(MAKE) -C tests/feedback test

@@ -14,11 +14,15 @@ typedef struct {
     char ntp_server[128];
 } curio_device_config_t;
 typedef struct { char admin_token[129], collector_token[129]; } curio_access_config_t;
+typedef struct { char ssid[33], password[64], hostname[33]; } curio_network_config_t;
+typedef struct { char certificate[2048], private_key[2048]; } curio_tls_config_t;
 typedef struct {
     curio_device_config_t device;
     curio_display_config_t display;
     curio_alert_config_t alerts;
     curio_access_config_t access;
+    curio_network_config_t network;
+    curio_tls_config_t tls;
 } curio_config_t;
 bool curio_config_parse(const char *yaml, size_t size, curio_config_t *config, char *error, size_t error_size);
 /* Free the returned YAML with cJSON_free. */

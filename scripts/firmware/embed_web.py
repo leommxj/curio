@@ -7,7 +7,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('source', type=Path)
 parser.add_argument('output', type=Path)
 args = parser.parse_args()
-assets = [('vendor/js-yaml.min.js', 'application/javascript; charset=utf-8'), ('index.html', 'text/html; charset=utf-8'), ('style.css', 'text/css; charset=utf-8'), ('app.js', 'application/javascript; charset=utf-8')]
+assets = [('vendor/js-yaml.min.js', 'application/javascript; charset=utf-8'), ('index.html', 'text/html; charset=utf-8'), ('style.css', 'text/css; charset=utf-8'), ('app.js', 'application/javascript; charset=utf-8'), ('setup.html', 'text/html; charset=utf-8'), ('setup.js', 'application/javascript; charset=utf-8')]
 lines = ['#pragma once', '#include <stdint.h>', '#include <stddef.h>',
          'typedef struct { const char *path, *type; const uint8_t *data; size_t size; } curio_web_asset_t;']
 for index, (name, _) in enumerate(assets):

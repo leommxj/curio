@@ -2,6 +2,13 @@
 #include <assert.h>
 #include <stdio.h>
 curio_app_t curio_app;
+static unsigned setup_starts, setup_stops;
+void curio_network_setup(bool enabled)
+{
+    curio_app.setup_active = enabled;
+    if (enabled) setup_starts++;
+    else setup_stops++;
+}
 static uint64_t now;
 static time_t clock_now;
 time_t curio_clock_now(void) { return clock_now; }
@@ -438,6 +445,41 @@ static void tap(int x, int y)
 {
     step(x, y, true);
     step(x, y, false);
+}
+static void setup_checks(void)
+{
+    strcpy(curio_app.setup_ssid, "Curio-123456");
+    strcpy(curio_app.setup_password, "abcdef1234567890");
+    curio_app.setup_active = true;
+    refresh(NULL);
+    lv_obj_update_layout(lv_screen_active());
+    assert(setup_mask && setup_shown && setup_starts == 1);
+    assert(!strcmp(lv_label_get_text(setup_details), "Network\nCurio-123456\n\nPassword\nabcdef1234567890"));
+    assert(!strcmp(lv_label_get_text(lv_obj_get_child(setup_mask, -1)), "http://192.168.4.1"));
+    tap(410, 38);
+    assert(!setup_mask && setup_stops == 1);
+    curio_app.setup_active = true;
+    refresh(NULL);
+    assert(!setup_mask && setup_starts == 1);
+    tap(444, 28);
+    assert(settings_mask);
+    tap(308, 38);
+    assert(setup_mask && setup_starts == 2);
+    curio_app.setup_active = false;
+    refresh(NULL);
+    assert(!strcmp(lv_label_get_text(setup_details), "Starting..."));
+    strcpy(curio_app.network_error, "Setup: ESP_FAIL");
+    refresh(NULL);
+    assert(!strcmp(lv_label_get_text(setup_details), "Setup: ESP_FAIL"));
+    curio_app.network_error[0] = 0;
+    curio_app.setup_active = true;
+    refresh(NULL);
+    assert(strstr(lv_label_get_text(setup_details), "Curio-123456"));
+    tap(410, 38);
+    assert(!setup_mask && setup_stops == 2);
+    tap(410, 38);
+    assert(!settings_mask);
+    puts("Wi-Fi setup: initial prompt, credentials, manual reopen and close passed");
 }
 static void settings_checks(void)
 {
@@ -1166,6 +1208,7 @@ int main(void)
     assert(curio_core_apply_json(&curio_app.core, json, n, 0) == CURIO_OK);
     curio_ui_start();
     lv_obj_update_layout(lv_screen_active());
+    setup_checks();
     for (size_t i = 0; i < 3; i++)
         lv_obj_add_event_cb(widgets[0]->data.agents->filters[i], count_click, LV_EVENT_CLICKED,
                             NULL);

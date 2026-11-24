@@ -20,6 +20,7 @@ python3 -m playwright install chromium
 | Config | `make -C tests/config sanitize` | YAML defaults, canonical round trips, strict validation, duplicate keys and allocation failures |
 | Web | `python3 -m unittest discover -s tests/web -v` | Widget editing, status cards, numeric formatting, undo, form/YAML consistency, import/export and tokens |
 | Settings | `make -C tests/settings sanitize` | Dual-slot YAML, ETags, token changes, NVS failures and reboot recovery |
+| Provisioning | `make -C tests/provision test` | Iris chunk ordering, setup access, failed writes, TLS errors and restart |
 | UI | `make -C tests/ui test` | Real LVGL input, clock sizing and updates, paging, Settings, alert details, temporary mute and popups |
 | Integration | `python3 -W error::ResourceWarning tests/integration/test_collector_hub.py` | Real Collector and development Hub authentication, persistence, capacity and source updates |
 | Scripts | `python3 -m unittest discover -s tests/scripts -v` | Make build/flash ordering, deployment arguments, generated units, sudo paths and uninstall behavior |

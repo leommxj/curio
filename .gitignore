@@ -26,9 +26,6 @@ collector.yaml
 host-id
 token.txt
 admin-token.txt
-curio_config.h
-curio_tls.h
-deployment.json
 *.pem
 *.key
 .env

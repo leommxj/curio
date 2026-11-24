@@ -13,7 +13,7 @@ Use HTTPS on port 443 and `Authorization: Bearer <token>`. JSON and YAML use UTF
 | `access.collector_token` | `POST /api/v2/snapshot`, for any host ID |
 | `access.admin_token` | State, catalog, configuration, token management, diagnostics |
 
-Static web assets and `/healthz` are public. Initial deployment reads `firmware/local/token.txt` and `admin-token.txt`; saved configuration takes precedence on later boots. YAML exports contain both tokens in plaintext. Keep credentials, private keys, and local configuration out of Git.
+Static web assets and `/healthz` are public on the normal HTTPS server. An unconfigured device opens a temporary WPA2 Setup AP with a random password shown on its screen. The AP serves `http://192.168.4.1/setup.html` and the setup API without a separate token. A physical Wi-Fi button in Settings can open or close the AP later; connection failures do not open it. There is no captive portal or DNS redirect. Device credentials live in saved YAML in NVS, not in the firmware image. Full YAML exports contain the Wi-Fi password, both tokens and TLS private key in plaintext; keep them out of Git.
 
 ## Snapshots
 
@@ -101,6 +101,10 @@ Bodies are limited to 16 KiB and one mapping document. Unknown fields, duplicate
 access:
   admin_token: example-admin-token-0001
   collector_token: example-collector-token-0001
+network:
+  ssid: Office Wi-Fi
+  password: example-password
+  hostname: curio
 screen:
   pages:
     - id: agents
@@ -110,7 +114,19 @@ screen:
           size: [4, 6]
 ```
 
-`access` and `screen.pages` are required. `version` defaults to 1 and only accepts 1. `device` and `alerts` are optional. Tokens contain 16–128 printable ASCII bytes without whitespace. Importing a document updates its credentials. Wi-Fi, hostname, and TLS keys/certificates are managed separately by deployment files.
+`access` and `screen.pages` are required. `version` defaults to 1 and only accepts 1. `device`, `alerts`, `network` and `tls` are optional. Tokens contain 16–128 printable ASCII bytes without whitespace. Importing a document updates its credentials, Wi-Fi and TLS settings. `network.ssid` contains 1–32 UTF-8 bytes when Wi-Fi is configured; `network.password` is empty or 8–63 UTF-8 bytes. `network.hostname` defaults to `curio` and is one DNS label of at most 32 ASCII letters, digits and interior hyphens. `tls.certificate` and `tls.private_key` are PEM strings supplied together. When Wi-Fi is configured and TLS is absent, the device generates a certificate and key. Changing the hostname through the Device tab removes the old TLS pair so the device generates one for the new name. Network and certificate changes take effect after restart.
+
+Import replaces the complete configuration; omitted optional fields return to their defaults. Export the current YAML before editing a configured device. The example above omits TLS so the device generates it; later exports include both PEM fields.
+
+The same complete YAML is used by the setup API while the temporary AP is open:
+
+| Endpoint | Behavior |
+| --- | --- |
+| `GET /api/v2/setup` | Return normalized YAML and ETag without a token |
+| `PUT /api/v2/setup` | Import full YAML with `Content-Type: application/yaml` and the current `If-Match`; return normalized YAML and ETag |
+| `POST /api/v2/setup/restart` | Return 200 and schedule a device restart |
+
+Setup writes do not restart automatically; the setup page offers restart after a successful save, leaving time to download credentials. The normal HTTPS `GET` and `PUT /api/v2/config` and `POST /api/v2/restart` require the admin token. The setup API is available only on the temporary AP; the physical AP password is its access control. `make provision` writes the same full YAML over Iris only while the device is unconfigured or physical Setup is open.
 
 `PUT /api/v2/tokens/admin` accepts a JSON body up to 512 bytes: `{"token":"new-admin-token-0001"}`. `POST /api/v2/tokens/collector` needs no body and generates a 64-character hexadecimal token. Both authenticate with the current admin token and return updated YAML and ETag. Replaced tokens stop working immediately.
 

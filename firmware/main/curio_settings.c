@@ -1,6 +1,6 @@
 #include "curio_settings.h"
 #include "curio_app.h"
-#include "curio_build_config.h"
+#include "curio_tls.h"
 #include "cJSON.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -45,6 +45,8 @@ static void snapshot(curio_config_t *config)
     config->display = curio_app.layout;
     config->alerts = curio_app.alert_config;
     config->access = curio_app.access;
+    config->network = curio_app.network;
+    config->tls = curio_app.tls;
     xSemaphoreGive(curio_app.mutex);
 }
 
@@ -99,6 +101,8 @@ static esp_err_t commit(curio_config_t *config)
         curio_app.layout = config->display;
         curio_app.alert_config = config->alerts;
         curio_app.access = config->access;
+        curio_app.network = config->network;
+        curio_app.tls = config->tls;
         if (rules_changed) { previous = curio_app.alerts; curio_app.alerts = next; next = NULL; }
         else {
             curio_alerts_set_volume(curio_app.alerts, config->alerts.volume);
@@ -116,9 +120,8 @@ static esp_err_t commit(curio_config_t *config)
     return result;
 }
 
-static void initial_token(char *out, const char *configured)
+static void initial_token(char *out)
 {
-    if (configured[0]) { snprintf(out, 129, "%s", configured); return; }
     uint8_t random[32];
     esp_fill_random(random, sizeof(random));
     for (size_t i = 0; i < sizeof(random); i++) snprintf(out + i * 2, 3, "%02x", random[i]);
@@ -130,8 +133,10 @@ esp_err_t curio_settings_init(void)
     curio_layout_default(&curio_app.layout);
     curio_alert_config_default(&curio_app.alert_config);
     curio_app.device = (curio_device_config_t){.brightness = 75, .ntp_server = "pool.ntp.org"};
-    initial_token(curio_app.access.admin_token, CURIO_ADMIN_TOKEN);
-    initial_token(curio_app.access.collector_token, CURIO_DEVICE_TOKEN);
+    initial_token(curio_app.access.admin_token);
+    initial_token(curio_app.access.collector_token);
+    curio_app.network = (curio_network_config_t){.hostname = "curio"};
+    memset(&curio_app.tls, 0, sizeof(curio_app.tls));
     if (!write_mutex) write_mutex = xSemaphoreCreateMutex();
     if (!write_mutex) return ESP_ERR_NO_MEM;
     esp_err_t result = nvs_flash_init();
@@ -181,6 +186,9 @@ esp_err_t curio_settings_init(void)
             curio_app.layout = config->display;
             curio_app.alert_config = config->alerts;
             curio_app.access = config->access;
+            curio_app.network = config->network;
+            curio_app.tls = config->tls;
+            curio_app.configured = config->network.ssid[0] && config->tls.certificate[0];
             cJSON_free(document);
             document = yaml;
             yaml = NULL;
@@ -211,7 +219,14 @@ esp_err_t curio_settings_import(const char *yaml, size_t size, uint32_t revision
     if (!config) return ESP_ERR_NO_MEM;
     if (!curio_config_parse(yaml, size, config, error, error_size)) { free(config); return ESP_ERR_INVALID_ARG; }
     xSemaphoreTake(write_mutex, portMAX_DELAY);
-    esp_err_t result = revision == document_revision ? commit(config) : ESP_ERR_INVALID_VERSION;
+    esp_err_t result = revision == document_revision ? ESP_OK : ESP_ERR_INVALID_VERSION;
+    if (result == ESP_OK && (strcmp(config->network.hostname, curio_app.network.hostname) ||
+        memcmp(&config->tls, &curio_app.tls, sizeof(config->tls)) ||
+        (config->network.ssid[0] && !config->tls.certificate[0]))) {
+        result = curio_tls_prepare(config);
+        if (result != ESP_OK && error && error_size) snprintf(error, error_size, "invalid TLS certificate, key or hostname");
+    }
+    if (result == ESP_OK) result = commit(config);
     xSemaphoreGive(write_mutex);
     free(config);
     return result;

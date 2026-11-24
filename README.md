@@ -42,7 +42,7 @@ OS compatibility is listed per module in the [Collector guide](docs/collector.md
 
 ### Start
 
-Build and install the device firmware using the [firmware guide](docs/firmware.md). Then build the Collector with Go 1.22+ and Make from the repository root:
+Build and install the device firmware using the [firmware guide](docs/firmware.md). For first setup, join the temporary `Curio-…` Wi-Fi network with the password shown on the board and open `http://192.168.4.1/setup.html`. Enter your Wi-Fi settings, save, download the certificate and full YAML, then select **Connect** to restart. Alternatively, run `make configure SSID="YourWiFi"` followed by `make provision` over USB or paired Wi-Fi while the device is unconfigured or its physical Setup AP is open. Then build the Collector with Go 1.22+ and Make from the repository root:
 
 ```sh
 make collector
@@ -59,15 +59,15 @@ Edit the generated `collector.yaml`: set the endpoint, certificate, token file a
 
 The default file is `curio/collector.yaml` in the user's configuration directory. Use `--config PATH` to select another file; restart after edits. On Linux, install a user service with `make install-collector`, or use `make install-collector MODE=system` for a system service. See [service deployment](docs/collector.md#services).
 
-Open `https://curio.local` in a browser, trust the device certificate and sign in with the admin token. The initial token is in `firmware/local/admin-token.txt`. The web interface edits screen layout, data bindings, alerts and YAML. Bindings may refer to data that has not arrived yet. The [example Hub configuration](curio.example.yaml) shows the format.
+Open `https://curio.local` (or your chosen hostname) in a browser, trust the device certificate and sign in with the admin token from setup. Computer provisioning also saves it in `firmware/local/admin-token.txt`. The web interface edits screen layout, data bindings, alerts, network settings and YAML. Bindings may refer to data that has not arrived yet. The [example Hub configuration](curio.example.yaml) shows the format.
 
-Admin and Collector tokens can be changed from the web interface. YAML exports contain both tokens. Wi-Fi, hostname and TLS inputs are build-time settings. Alert rules are empty by default; notifications disappear after ten seconds unless configured otherwise. Reported data and notifications are kept in RAM.
+Admin and Collector tokens can be changed from the web interface. Full YAML exports contain Wi-Fi settings, both tokens, and the TLS certificate and private key. Network and certificate changes take effect after a restart. Alert rules are empty by default; notifications disappear after ten seconds unless configured otherwise. Reported data and notifications are kept in RAM.
 
 ### Commands
 
 Run `make help` for build, flash, service and test commands. `make test` runs the host tests; UI and browser tests have separate targets described in the [test guide](tests/README.md).
 
-`make flash` builds before installing. `make flash BUNDLE=/path/to/file.irisfw` installs an existing bundle. Firmware and Collector output defaults to `build/`; credentials stay in `firmware/local/`. Set `PYTHON`, `GO` or `FIRMWARE_BUILD_DIR` when using a different interpreter, toolchain or build location.
+`make flash` builds before installing and preserves saved NVS configuration. `make flash BUNDLE=/path/to/file.irisfw` installs an existing bundle. `make configure` writes credentials to `firmware/local/`; normal firmware builds do not include them. `make provision` writes that configuration to the device under the setup gate. Firmware and Collector output defaults to `build/`. Set `PYTHON`, `GO` or `FIRMWARE_BUILD_DIR` when using a different interpreter, toolchain or build location.
 
 ### Limits and development
 
@@ -84,7 +84,7 @@ The Hub accepts four hosts, eight sources per host, and a total of 32 metrics an
 | `scripts/dev/` | Local development Hub and C bridge |
 | `tests/` | Host, browser and integration tests |
 
-See the [protocol](docs/protocol.md), [device controls](docs/firmware.md#runtime-and-controls) and [tests](tests/README.md). Dependencies are pinned in `dependencies.json`, `firmware/dependencies.lock` and `collector/go.sum`. Build output, credentials and local tool state are excluded from Git. Configured firmware images contain device credentials.
+See the [protocol](docs/protocol.md), [device controls](docs/firmware.md#runtime-and-controls) and [tests](tests/README.md). Dependencies are pinned in `dependencies.json`, `firmware/dependencies.lock` and `collector/go.sum`. Build output, credentials and local tool state are excluded from Git.
 
 ## 中文
 
@@ -120,7 +120,7 @@ Collector 上报机器和应用状态。开发板自行读取时钟和传感器�
 
 ### 开始使用
 
-按[固件文档](docs/firmware.md)构建并安装设备固件。准备 Go 1.22+ 和 Make，在仓库根目录构建 Collector：
+按[固件文档](docs/firmware.md)构建并安装设备固件。首次配置时，用设备屏幕显示的随机密码连接 `Curio-…` 临时 Wi-Fi，打开 `http://192.168.4.1/setup.html`，填写 Wi-Fi 信息并保存，下载证书和完整 YAML 后点击「连接」重启。也可在设备尚未配置或已手动开启设置热点时，用 `make configure SSID="YourWiFi"` 和 `make provision` 通过 USB 或已配对 Wi-Fi 写入配置。随后准备 Go 1.22+ 和 Make，在仓库根目录构建 Collector：
 
 ```sh
 make collector
@@ -137,15 +137,15 @@ make collector
 
 默认配置位于用户配置目录下的 `curio/collector.yaml`，可用 `--config PATH` 指定其他路径，修改后重启。Linux 可执行 `make install-collector` 安装用户服务，或使用 `make install-collector MODE=system` 安装系统服务，参见[服务部署](docs/collector.md#services)。
 
-浏览器打开 `https://curio.local`，信任设备证书后使用管理 token 登录；初始值在 `firmware/local/admin-token.txt`。网页可配置布局、数据绑定、提醒和完整 YAML，也能预先绑定尚未上报的数据。[Hub 配置示例](curio.example.yaml)展示了字段格式。
+浏览器打开 `https://curio.local`（或设置的主机名），信任设备证书后使用设置时取得的管理 token 登录。电脑配置时也会写入 `firmware/local/admin-token.txt`。网页可配置布局、数据绑定、提醒、网络和完整 YAML，也能预先绑定尚未上报的数据。[Hub 配置示例](curio.example.yaml)展示了字段格式。
 
-网页可修改管理 token、生成 Collector token；YAML 导出包含这两项凭证。Wi-Fi、主机名和 TLS 在构建时配置。提醒默认没有规则，需要自行添加；通知默认十秒消失，也可调整。采集数据和通知仅保存在 RAM。
+网页可修改管理 token、生成 Collector token；完整 YAML 导出包含 Wi-Fi、两项 token、证书和私钥。修改网络或证书后需重启生效。提醒默认没有规则，需要自行添加；通知默认十秒消失，也可调整。采集数据和通知仅保存在 RAM。
 
 ### 常用命令
 
 执行 `make help` 查看构建、刷写、服务和测试命令。`make test` 运行主机测试；UI 和浏览器测试使用单独入口，见[测试文档](tests/README.md)。
 
-`make flash` 先构建再刷写；`make flash BUNDLE=/path/to/file.irisfw` 刷写已有升级包。固件和 Collector 构建产物默认位于 `build/`，设备凭证保存在 `firmware/local/`。可用 `PYTHON`、`GO`、`FIRMWARE_BUILD_DIR` 指定解释器、工具链或构建目录。
+`make flash` 先构建再刷写，并保留设备 NVS 中已有的配置；`make flash BUNDLE=/path/to/file.irisfw` 刷写已有升级包。`make configure` 将凭证写到 `firmware/local/`，普通固件构建不包含凭证；`make provision` 仅在设置入口开放时写入设备。固件和 Collector 构建产物默认位于 `build/`。可用 `PYTHON`、`GO`、`FIRMWARE_BUILD_DIR` 指定解释器、工具链或构建目录。
 
 ### 限制与开发
 
@@ -153,4 +153,4 @@ Hub 最多接收四台主机，每机八个来源、合计 32 个指标和 16 �
 
 `Makefile` 统一命令入口。`collector/` 负责采集和上报；`firmware/components/` 存放可在主机测试的状态、YAML、布局和提醒模型；`firmware/main/` 接入 ESP-IDF、设备驱动、LVGL 和网页。`scripts/` 按 `firmware`、`collector`、`dev` 分组存放构建、部署和开发脚本，`tests/` 存放测试。详细说明见[协议](docs/protocol.md)和[设备操作](docs/firmware.md#runtime-and-controls)。
 
-依赖由 `dependencies.json`、`firmware/dependencies.lock` 和 `collector/go.sum` 固定。构建产物、凭证和本地运行数据不纳入 Git；配置过的固件镜像包含设备凭证。
+依赖由 `dependencies.json`、`firmware/dependencies.lock` 和 `collector/go.sum` 固定。构建产物、凭证和本地运行数据不纳入 Git。

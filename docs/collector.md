@@ -34,9 +34,11 @@ Adding a built-in module requires changing and rebuilding Collector. A separate 
 
 ## Configuration and commands
 
+First set up the Hub through its temporary Wi-Fi page or with `make configure` and `make provision` as described in the [firmware guide](firmware.md#first-setup). The Wi-Fi page downloads `server-cert.pem` and `curio.yaml`; copy `access.collector_token` from the YAML into a private token file for the Collector. Computer setup writes `firmware/local/server-cert.pem` and `firmware/local/token.txt` directly. Use the configured hostname in the Collector endpoint, for example `https://curio.local`, and point `ca` at that certificate. If the Hub hostname is changed later, download its new certificate and update the Collector's endpoint and CA file before reconnecting.
+
 ```sh
 ./build/curio-collector init
-# Edit collector.yaml and prepare its certificate and token files.
+# Edit collector.yaml and use the certificate and token from Hub setup.
 ./build/curio-collector check
 ./build/curio-collector --dry-run
 ./build/curio-collector

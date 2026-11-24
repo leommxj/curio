@@ -17,6 +17,19 @@ device:
   brightness: 75
   rotation: 90
   auto_rotate: true
+network:
+  ssid: Studio WiFi
+  password: password123
+  hostname: curio-studio
+tls:
+  certificate: |
+    -----BEGIN CERTIFICATE-----
+    initial-cert
+    -----END CERTIFICATE-----
+  private_key: |
+    -----BEGIN PRIVATE KEY-----
+    initial-key
+    -----END PRIVATE KEY-----
 screen:
   pages:
     - id: main
@@ -77,6 +90,7 @@ class ConfigBrowserTest(unittest.TestCase):
         self.state = {"hosts": []}
         self.requests, self.errors = [], []
         self.conflict = False
+        self.regenerate_tls = False
         self.page.on("pageerror", lambda error: self.errors.append(str(error)))
         self.page.on("dialog", lambda dialog: dialog.accept())
         self.page.route("**/api/v2/**", self.api)
@@ -107,6 +121,12 @@ class ConfigBrowserTest(unittest.TestCase):
                 assert request.headers["content-type"] == "application/yaml"
                 assert request.headers["if-match"] == f'"{self.revision}"'
                 self.source = request.post_data
+                if self.regenerate_tls and "\ntls:" not in self.source:
+                    self.source += "\ntls:\n  certificate: |\n    replacement-cert\n  private_key: |\n    replacement-key\n"
+            elif path == "restart":
+                assert request.method == "POST"
+                route.fulfill(status=202, json={"status": "restarting"})
+                return
             elif path == "tokens/admin":
                 new_token = json.loads(request.post_data)["token"]
                 self.source = self.source.replace(self.admin, new_token)
@@ -133,6 +153,8 @@ class ConfigBrowserTest(unittest.TestCase):
         self.page.wait_for_function("!deviceDirty")
         document = self.config()
         self.assertEqual(document["device"]["brightness"], 61)
+        self.assertEqual(document["network"]["ssid"], "Studio WiFi")
+        self.assertIn("initial-cert", document["tls"]["certificate"])
         self.assertEqual(document["access"]["collector_token"], "collector-token-123456789")
         self.assertEqual(document["screen"]["pages"][0]["widgets"][1]["host"], "workstation")
         self.assertEqual(document["alerts"]["rules"][1]["hold"], 60)
@@ -159,6 +181,38 @@ class ConfigBrowserTest(unittest.TestCase):
         self.assertTrue(self.page.locator("#yaml-editor").input_value().endswith("# pending edit\n"))
         self.assertTrue(all(path in ("config", "state", "tokens/admin", "tokens/collector") for path, *_ in self.requests))
 
+    def test_network_edit_certificate_and_restart(self):
+        self.tab("device")
+        self.assertEqual(self.page.locator("#network-ssid").input_value(), "Studio WiFi")
+        self.assertEqual(self.page.locator("#network-hostname").input_value(), "curio-studio")
+        with self.page.expect_download() as info:
+            self.page.locator("#download-certificate").click()
+        self.assertEqual(info.value.suggested_filename, "curio-studio.crt")
+        self.assertIn("initial-cert", Path(info.value.path()).read_text())
+        self.page.locator("#network-ssid").fill("New Studio")
+        self.page.locator("#network-ssid").dispatch_event("change")
+        self.page.locator("#network-hostname").fill("curio-renamed")
+        self.page.locator("#network-hostname").dispatch_event("change")
+        self.assertTrue(self.page.locator("#download-certificate").is_disabled())
+        self.regenerate_tls = True
+        self.page.locator("#save-device").click()
+        self.page.wait_for_function("!deviceDirty")
+        submitted = [body for path, method, _, body in self.requests if path == "config" and method == "PUT"][-1]
+        self.assertNotIn("tls:", submitted)
+        self.assertEqual(self.config()["network"]["hostname"], "curio-renamed")
+        self.assertIn("replacement-cert", self.config()["tls"]["certificate"])
+        self.assertFalse(any(path == "restart" for path, *_ in self.requests))
+        with self.page.expect_download() as info:
+            self.page.locator("#download-certificate").click()
+        self.assertEqual(info.value.suggested_filename, "curio-renamed.crt")
+        self.assertIn("replacement-cert", Path(info.value.path()).read_text())
+        self.page.locator("#restart-device").click()
+        self.page.wait_for_function("document.querySelector('#status').textContent.includes('设备正在重启')")
+        restarts = [(method, headers) for path, method, headers, _ in self.requests if path == "restart"]
+        self.assertEqual(len(restarts), 1)
+        self.assertEqual(restarts[0][0], "POST")
+        self.assertEqual(restarts[0][1]["authorization"], "Bearer " + self.admin)
+
     def test_reported_data_refresh_and_metric_binding(self):
         self.state = {"hosts": [{
             "host_id": "workstation", "host_name": "Office", "health": "fresh",
@@ -183,6 +237,8 @@ class ConfigBrowserTest(unittest.TestCase):
         binding = self.config()["screen"]["pages"][0]["widgets"][1]
         self.assertEqual((binding["host"], binding["source"], binding["key"]),
                          ("workstation", "system.cpu", "usage_pct"))
+        self.assertEqual(self.config()["network"]["hostname"], "curio-studio")
+        self.assertIn("initial-cert", self.config()["tls"]["certificate"])
         self.assertFalse(any(path == "catalog" for path, *_ in self.requests))
 
     def test_yaml_admin_change_and_mobile_layout(self):

@@ -78,6 +78,8 @@ static lv_obj_t *page_title, *battery_label;
 static lv_obj_t *wifi_button, *wifi_warning, *sound_button, *vibration_button, *sound_icon;
 static lv_obj_t *network_popup, *network_status, *network_ip;
 static uint64_t network_until;
+static lv_obj_t *setup_mask, *setup_details;
+static bool setup_shown;
 static lv_obj_t *notification_mask, *notification_title, *notification_body, *notification_detail, *notification_countdown;
 static uint32_t notification_id, notification_revision;
 static bool notification_active, preview_active;
@@ -358,6 +360,25 @@ static lv_obj_t *settings_sheet(lv_obj_t *parent, const char *title, const char 
     button(sheet, action, 364, 16, 92, close, NULL);
     return sheet;
 }
+static void setup_close(lv_event_t *event)
+{
+    (void)event;
+    curio_network_setup(false);
+    lv_obj_delete(setup_mask);
+    setup_mask = NULL;
+}
+static void setup_open(lv_event_t *event)
+{
+    (void)event;
+    if (setup_mask) return;
+    setup_shown = true;
+    curio_network_setup(true);
+    setup_mask = settings_sheet(lv_screen_active(), "Wi-Fi setup", "Close", setup_close);
+    setup_details = label(setup_mask, 32, 110, 416, &lv_font_montserrat_26, fg);
+    lv_label_set_long_mode(setup_details, LV_LABEL_LONG_WRAP);
+    text(setup_details, "Starting...");
+    text(label(setup_mask, 32, 380, 416, &lv_font_montserrat_26, muted), "http://192.168.4.1");
+}
 static void alert_details_close(lv_event_t *event)
 {
     (void)event;
@@ -551,6 +572,7 @@ static void settings_open(lv_event_t *event)
     (void)event;
     if (settings_mask) return;
     settings_mask = settings_sheet(lv_screen_active(), "Settings", "Close", settings_close);
+    button(settings_mask, "Wi-Fi", 264, 16, 88, setup_open, NULL);
     rotate_switch = settings_toggle("Auto rotate", 72);
     paging_switch = settings_toggle("Agent auto-page", 120);
     settings_page = label(settings_mask, 24, 162, 420, &lv_font_montserrat_14, muted);
@@ -946,7 +968,13 @@ static void refresh(lv_timer_t *timer)
         xSemaphoreTake(curio_app.mutex, portMAX_DELAY);
     }
     char connection_text[96];
-    snprintf(connection_text, sizeof(connection_text), "%s", !curio_app.configured ? "Setup required" : curio_app.network_error[0] ? curio_app.network_error : !curio_app.wifi_connected ? "Wi-Fi disconnected" : !curio_app.https_ready ? "HTTPS unavailable" : "Connected");
+    snprintf(connection_text, sizeof(connection_text), "%s", curio_app.setup_active ? "Wi-Fi setup active" : !curio_app.configured ? "Setup required" : curio_app.network_error[0] ? curio_app.network_error : !curio_app.wifi_connected ? "Wi-Fi disconnected" : !curio_app.https_ready ? "HTTPS unavailable" : "Connected");
+    bool show_setup = curio_app.setup_active && !curio_app.configured && !setup_shown;
+    char setup_text[128];
+    if (curio_app.setup_active)
+        snprintf(setup_text, sizeof(setup_text), "Network\n%s\n\nPassword\n%s",
+            curio_app.setup_ssid, curio_app.setup_password);
+    else snprintf(setup_text, sizeof(setup_text), "%s", curio_app.network_error[0] ? curio_app.network_error : "Starting...");
     bool wifi_connected = curio_app.wifi_connected;
     bool network_ready = curio_app.configured && wifi_connected && curio_app.https_ready && !curio_app.network_error[0];
     bool network_error = curio_app.configured && (curio_app.network_error[0] || (wifi_connected && !curio_app.https_ready));
@@ -1073,6 +1101,11 @@ static void refresh(lv_timer_t *timer)
     }
     alert_details_update();
     notification_show(notification_active ? &notification : NULL, preview_active ? UINT32_MAX : alert_revision, remaining_ms);
+    if (show_setup) setup_open(NULL);
+    if (setup_mask) {
+        if (strcmp(lv_label_get_text(setup_details), setup_text)) lv_label_set_text(setup_details, setup_text);
+        lv_obj_move_foreground(setup_mask);
+    }
 }
 void curio_ui_start(void)
 {

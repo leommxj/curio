@@ -1,6 +1,5 @@
 #include "curio_app.h"
 #include "curio_sensors.h"
-#include "curio_build_config.h"
 #include "esp_check.h"
 #include "esp_timer.h"
 #include "esp_iris.h"
@@ -27,7 +26,6 @@ void app_main(void)
     curio_app.mutex = xSemaphoreCreateMutex();
     configASSERT(curio_app.mutex);
     curio_core_init_allocator(&curio_app.core, (curio_allocator_t){curio_alloc, heap_caps_free});
-    curio_app.configured = CURIO_CONFIGURED;
     esp_err_t result = curio_settings_init();
     if (result != ESP_OK) {
         snprintf(curio_app.network_error, sizeof(curio_app.network_error), "Settings: %s", esp_err_to_name(result));
@@ -35,7 +33,8 @@ void app_main(void)
     }
     curio_ui_start();
     curio_sensors_start();
-    if (curio_app.configured) {
+    if (result == ESP_OK) {
+        curio_provision_start();
         curio_network_start();
     }
 }

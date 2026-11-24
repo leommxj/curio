@@ -2,6 +2,10 @@ version: 1
 access:
   admin_token: example-admin-token-change-me
   collector_token: example-collector-token-change-me
+network:
+  ssid: YourWiFi
+  password: change-this-password
+  hostname: curio
 device:
   brightness: 75
   rotation: 0

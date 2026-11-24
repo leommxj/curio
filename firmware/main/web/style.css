@@ -935,3 +935,88 @@ summary:focus-visible {
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
+
+.setup-page header span {
+  color: #76816e;
+  font-size: 13px;
+}
+.setup-shell {
+  max-width: 620px;
+  margin: 56px auto;
+}
+.setup-shell .panel {
+  padding: 36px;
+}
+.setup-shell h1 {
+  margin: 0 0 24px;
+  font-size: 25px;
+  letter-spacing: -0.5px;
+}
+.setup-shell label {
+  font-size: 13px;
+  margin: 20px 0;
+}
+.setup-shell input {
+  margin-top: 7px;
+}
+#save-setup,
+#restart {
+  background: #344e3c;
+  border-color: #344e3c;
+  color: white;
+}
+#save-setup:hover,
+#restart:hover {
+  background: #45634a;
+}
+#setup-status {
+  min-height: 18px;
+  margin: 16px 0 0;
+  font-size: 13px;
+}
+.setup-secret {
+  border-top: 1px solid #e4e8df;
+  padding: 15px 0;
+}
+.setup-secret span {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 12px;
+  color: #778471;
+}
+.setup-secret code {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.setup-actions,
+.setup-next {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+.setup-next {
+  border-top: 1px solid #e4e8df;
+  padding-top: 20px;
+}
+.setup-next a {
+  color: #344e3c;
+  overflow-wrap: anywhere;
+}
+.setup-edit {
+  margin-top: 24px;
+  padding: 0;
+  min-height: auto;
+  border: 0;
+  color: #778471;
+  font-size: 12px;
+}
+@media (max-width: 620px) {
+  .setup-shell {
+    margin: 24px auto;
+  }
+  .setup-shell .panel {
+    padding: 24px;
+  }
+}

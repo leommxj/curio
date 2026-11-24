@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate private deployment inputs; never flashes a device."""
+"""Generate a private Hub configuration and Collector credentials."""
 
 import argparse
 import getpass
@@ -17,17 +17,46 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def c_string(value):
-    return '"' + ''.join(f'\\{byte:03o}' for byte in value.encode('utf-8')) + '"'
-
-
 def private_write(path, value):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, 'w', encoding='utf-8') as stream:
         stream.write(value)
 
 
-def main():
+def scalar(value):
+    return json.dumps(value, ensure_ascii=False)
+
+
+def pem_field(name, value):
+    return f'  {name}: |\n' + ''.join(f'    {line}\n' for line in value.splitlines())
+
+
+def config_yaml(ssid, password, hostname, certificate, private_key, admin_token, collector_token):
+    return (
+        'version: 1\n'
+        'network:\n'
+        f'  ssid: {scalar(ssid)}\n'
+        f'  password: {scalar(password)}\n'
+        f'  hostname: {scalar(hostname)}\n'
+        'tls:\n'
+        + pem_field('certificate', certificate)
+        + pem_field('private_key', private_key)
+        + 'access:\n'
+        f'  admin_token: {scalar(admin_token)}\n'
+        f'  collector_token: {scalar(collector_token)}\n'
+        'screen:\n'
+        '  pages:\n'
+        '    - id: main\n'
+        '      title: Agents\n'
+        '      widgets:\n'
+        '        - id: agents\n'
+        '          type: agents\n'
+        '          at: [0, 0]\n'
+        '          size: [4, 6]\n'
+    )
+
+
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ssid', required=True)
     parser.add_argument('--hostname', default='curio')
@@ -35,7 +64,7 @@ def main():
     parser.add_argument('--password-env', help='Read Wi-Fi password from this environment variable')
     parser.add_argument('--open-wifi', action='store_true')
     parser.add_argument('--output', type=Path, default=ROOT / 'firmware/local')
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if not re.fullmatch(r'[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,30}[a-zA-Z0-9])?', args.hostname):
         parser.error('hostname must be one DNS label, at most 32 ASCII characters')
     if not 1 <= len(args.ssid.encode('utf-8')) <= 32 or '\0' in args.ssid:
@@ -69,35 +98,26 @@ def main():
         sans = ['DNS:' + dns, 'DNS:' + args.hostname] + ['IP:' + address for address in addresses]
         subprocess.run([
             'openssl', 'req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256',
-            '-nodes', '-sha256', '-days', '365', '-subj', '/CN=' + dns,
+            '-nodes', '-sha256', '-days', '3650', '-subj', '/CN=' + dns,
             '-addext', 'subjectAltName=' + ','.join(sans),
             '-addext', 'basicConstraints=critical,CA:TRUE',
             '-addext', 'keyUsage=critical,digitalSignature,keyCertSign',
             '-addext', 'extendedKeyUsage=serverAuth',
             '-keyout', str(work / 'server-key.pem'), '-out', str(work / 'server-cert.pem'),
         ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        token = secrets.token_hex(32)
+        certificate = (work / 'server-cert.pem').read_text(encoding='utf-8')
+        private_key = (work / 'server-key.pem').read_text(encoding='utf-8')
+        collector_token = secrets.token_hex(32)
         admin_token = secrets.token_hex(32)
-        settings = {
-            'CURIO_CONFIGURED': '1',
-            'CURIO_WIFI_SSID': c_string(args.ssid),
-            'CURIO_WIFI_PASSWORD': c_string(password),
-            'CURIO_DEVICE_TOKEN': c_string(token),
-            'CURIO_ADMIN_TOKEN': c_string(admin_token),
-            'CURIO_HOSTNAME': c_string(args.hostname),
-        }
-        private_write(work / 'curio_config.h', '#pragma once\n' + ''.join(f'#define {k} {v}\n' for k, v in settings.items()))
-        cert = (work / 'server-cert.pem').read_text()
-        key = (work / 'server-key.pem').read_text()
-        private_write(work / 'curio_tls.h', '#pragma once\n' +
-                      f'static const char curio_tls_cert_pem[] = {c_string(cert)};\n' +
-                      f'static const char curio_tls_key_pem[] = {c_string(key)};\n')
-        private_write(work / 'token.txt', token + '\n')
+        config = config_yaml(args.ssid, password, args.hostname, certificate, private_key,
+                             admin_token, collector_token)
+        if len(config.encode('utf-8')) > 16384:
+            parser.error('generated configuration exceeds the 16384-byte device limit')
+        private_write(work / 'curio.yaml', config)
+        private_write(work / 'token.txt', collector_token + '\n')
         private_write(work / 'admin-token.txt', admin_token + '\n')
-        private_write(work / 'deployment.json', json.dumps({'hostname': dns, 'ip_addresses': addresses,
-                      'endpoint': 'https://' + dns, 'certificate_days': 365}, indent=2) + '\n')
         os.rename(work, target)
-    print(f'Deployment inputs written to {target}')
+    print(f'Hub configuration written to {target / "curio.yaml"}')
     print(f'Collector endpoint: https://{dns}')
 
 

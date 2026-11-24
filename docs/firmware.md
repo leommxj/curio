@@ -6,30 +6,33 @@ The [partition table](../firmware/partitions.csv) reserves 12.9375 MiB for `main
 
 ## Build
 
-Install Make, Python 3.12+, curl, OpenSSL, and the ESP-IDF revision in [dependencies.json](../dependencies.json), including its ESP32-S31 toolchain and Python environment. Activate ESP-IDF, then run from the repository root:
+Install Make, Python 3.12+, curl, and the ESP-IDF revision in [dependencies.json](../dependencies.json), including its ESP32-S31 toolchain and Python environment. Activate ESP-IDF, then run from the repository root:
 
 ```sh
 . /path/to/esp-idf/export.sh
-make configure SSID="YourWiFi"
 make firmware
 ```
 
-`make firmware` fetches pinned dependencies into `.deps/`, checks the ESP-IDF revision, then invokes ESP-IDF to build the application and official update bundle. Output defaults to `build/firmware/curio-system-update.irisfw`; override `FIRMWARE_BUILD_DIR` to use another build directory. `make deps` downloads dependencies without building.
+`make firmware` fetches pinned dependencies into `.deps/`, checks the ESP-IDF revision, then invokes ESP-IDF to build the application and official update bundle. Output defaults to `build/firmware/curio-system-update.irisfw`; override `FIRMWARE_BUILD_DIR` to use another build directory. `make deps` downloads dependencies without building. Firmware images do not contain Wi-Fi credentials, tokens or TLS keys.
 
-The configuration tool prompts for the Wi-Fi password; `--password-env VARIABLE` reads it from an environment variable, and `--open-wifi` selects an open network. Pass extra options through `ARGS`, for example `make configure SSID="YourWiFi" ARGS="--ip 192.168.1.50"`, to include an IP address in the certificate SAN. Output defaults to `firmware/local/`; an existing directory is never overwritten.
+## First setup
+
+Install the firmware with `make flash`, then use one of these setup paths:
+
+1. On an unconfigured device, join the `Curio-…` Wi-Fi network using the random password shown on the board. Open `http://192.168.4.1/setup.html`, enter the network SSID, password and hostname, then save. An empty Wi-Fi password selects an open network. Download the certificate and full YAML, then select **Connect** to restart the device. The setup page requires no separate login because its temporary AP has the displayed WPA2 password. There is no captive portal or DNS redirect; enter the address manually.
+2. For setup from a computer, install OpenSSL, run `make configure SSID="YourWiFi"` and then `make provision`. The latter writes the YAML over Iris, by USB or paired Wi-Fi, and restarts the device. Provisioning is accepted only while the device is unconfigured or its physical Setup AP is open. An ordinary network error never opens that AP. The configuration tool prompts for the Wi-Fi password; `ARGS="--password-env VARIABLE"` reads it from an environment variable, and `ARGS="--open-wifi"` selects an open network. Use `ARGS="--ip 192.168.1.50"` to include a device IP address in the certificate SAN.
+
+`make configure` creates `firmware/local/` and refuses to overwrite an existing directory. Its files are:
 
 | File | Purpose |
 | --- | --- |
-| `curio_config.h`, `curio_tls.h` | Compiled Wi-Fi settings, initial tokens, certificate and private key |
+| `curio.yaml` | Complete Hub configuration for `make provision`, including Wi-Fi, TLS and tokens |
 | `server-cert.pem` | Trust certificate for Collectors and browsers |
-| `token.txt` | Initial Collector token |
-| `admin-token.txt` | Initial web administration token |
-| `server-key.pem` | TLS private key; keep on the build machine |
-| `deployment.json` | Endpoint and certificate metadata |
+| `token.txt` | Collector token |
+| `admin-token.txt` | Web administration token |
+| `server-key.pem` | TLS private key |
 
-The certificate expires after 365 days. Regenerate deployment inputs and rebuild before expiry. Firmware images contain credentials. Without local configuration, Wi-Fi and HTTPS stay disabled; the Wi-Fi status popup shows `Setup required`.
-
-The compiled tokens initialize `access` only when no valid YAML configuration exists. Token changes through the web interface persist immediately; full YAML exports include both tokens in plain text. Changes to Wi-Fi, hostname or TLS inputs require rebuilding.
+The computer-generated certificate is valid for 3650 days. When setup is performed on the device without TLS fields, the device generates a certificate valid from 2024 through 2049. Save the downloaded certificate for browsers and Collectors. Full YAML exports contain the Wi-Fi password, both tokens, certificate and private key in plain text. Network, hostname and certificate changes are stored in YAML and take effect after a restart.
 
 ## Install and update
 
@@ -40,6 +43,8 @@ make doctor
 make flash
 make status
 ```
+
+Normal `make firmware` and `make flash` do not replace the application's saved NVS configuration. `make provision` explicitly writes a new configuration under the setup gate described above.
 
 For an existing package, use `make flash BUNDLE=/path/to/curio-system-update.irisfw`; this skips building. Set `DEVICE=DEVICE_ID` when multiple boards are connected. The official tools validate the application, partition identity and boot health. `.mosaico.json` supplies their workspace configuration; `scripts/firmware/mosaico.py` is the internal adapter.
 
@@ -55,7 +60,9 @@ Recovery replaces the bootloader, partition table and some factory applications.
 
 ## Connection and troubleshooting
 
-The default mDNS name is `curio.local`. If mDNS is unavailable, use the short hostname through local DNS or an IP address included in the certificate SAN. Configure certificate trust separately for Collectors and browsers.
+The default mDNS name is `curio.local`. If mDNS is unavailable, use the short hostname through local DNS or an IP address included in the certificate SAN. Configure certificate trust separately for Collectors and browsers. After setup, the web **Device** tab can change Wi-Fi and hostname, save the configuration, download the current certificate and restart to apply network changes. Changing the hostname generates a new certificate; custom TLS values can be imported through the full YAML editor.
+
+If the saved Wi-Fi credentials are wrong, open **Settings → Wi-Fi** on the device to reopen the temporary Setup AP and correct them at `http://192.168.4.1/setup.html`.
 
 `MOSAICO_UTILS_ROOT=/path/to/esp-mosaico-utils` selects an alternate checkout for the device-tool adapter; use the pinned revision.
 
@@ -67,9 +74,9 @@ The display starts before networking. Wi-Fi reconnects after disconnection; exis
 
 Clock widgets use the system clock, synchronized by ESP-IDF SNTP while any page contains a clock. The existing network task manages synchronization; no clock task is created. NTP server changes and Wi-Fi reconnection restart synchronization. Removing all clocks stops it. The device keeps time during network outages; before initial synchronization it shows `--:--`. Set the NTP server in the web Device tab and each clock's fixed UTC offset in its widget settings. Daylight-saving changes are manual.
 
-Device, screen, alert and access settings use two YAML slots in application NVS. Boot selects the newer valid configuration. Snapshots, temporary filters, page changes and queued notifications do not write Flash. See the [protocol](protocol.md) for fields and limits.
+Device, screen, alert, access, network and TLS settings use two YAML slots in application NVS. Boot selects the newer valid configuration. Snapshots, temporary filters, page changes and queued notifications do not write Flash. See the [protocol](protocol.md) for fields and limits.
 
-The top-right gear opens Settings: automatic rotation, automatic paging for Agent lists on the current page, brightness, volume, vibration strength and the global flash switch. Differing list settings show `Mixed`; toggling applies to all lists on the page. Paging pauses while Settings is open. Switches save immediately; sliders save on release, with live brightness preview. Device brightness ranges from 5–100%; the web interface allows 0–100%, where zero can blank the display. Volume and vibration range from 0–100%, with zero disabling that output.
+The top-right gear opens Settings: automatic rotation, automatic paging for Agent lists on the current page, brightness, volume, vibration strength, the global flash switch and a Wi-Fi button that opens or closes the temporary Setup AP. Differing list settings show `Mixed`; toggling applies to all lists on the page. Paging pauses while Settings is open. Switches save immediately; sliders save on release, with live brightness preview. Device brightness ranges from 5–100%; the web interface allows 0–100%, where zero can blank the display. Volume and vibration range from 0–100%, with zero disabling that output.
 
 `Alerts` shows scrollable rule details; edit rules in the web interface. `Test alert` displays a ten-second popup using current output settings, including flash when globally enabled. A real notification replaces the test. The top sound and vibration buttons temporarily mute their respective outputs until reboot, including tests, without changing YAML. Popups and flash remain available. Tap the Wi-Fi icon to show status and IP for five seconds.
 

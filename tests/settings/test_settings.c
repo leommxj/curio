@@ -6,8 +6,20 @@ curio_app_t curio_app;
 static uint8_t stored[2][CURIO_CONFIG_MAX_BYTES + 5];
 static size_t stored_size[2];
 static unsigned commits;
+static unsigned tls_prepares;
 static bool fail_write;
 static pthread_mutex_t app_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+esp_err_t curio_tls_prepare(curio_config_t *config)
+{
+    tls_prepares++;
+    if (!strcmp(config->tls.certificate, "bad-cert")) return ESP_ERR_INVALID_ARG;
+    if (!*config->tls.certificate) {
+        snprintf(config->tls.certificate, sizeof(config->tls.certificate), "generated-cert:%s", config->network.hostname);
+        strcpy(config->tls.private_key, "generated-key");
+    }
+    return ESP_OK;
+}
 
 void esp_fill_random(void *buffer, size_t size) { memset(buffer, 0x42, size); }
 esp_err_t nvs_flash_init(void) { return ESP_OK; }
@@ -111,6 +123,55 @@ static void test_configuration(void)
     assert(curio_app.alert_config.volume == 70 && !curio_app.layout.pages[0].widgets[0].auto_page);
     assert(!strcmp(curio_app.access.admin_token, "new-admin-token-123456"));
     assert(!strcmp(curio_app.access.collector_token, "new-collector-token-123456"));
+    free(config);
+}
+static void test_network_tls(void)
+{
+    uint32_t revision;
+    curio_config_t *config = read_config(&revision);
+    assert(!*config->network.ssid && !*config->tls.certificate && !strcmp(config->network.hostname, "curio"));
+    strcpy(config->network.ssid, "Studio WiFi");
+    strcpy(config->network.password, "password123");
+    strcpy(config->network.hostname, "curio-studio");
+    strcpy(config->tls.certificate, "supplied-cert");
+    strcpy(config->tls.private_key, "supplied-key");
+    unsigned prepared = tls_prepares;
+    assert(save_config(config, revision) == ESP_OK && tls_prepares == prepared + 1);
+    assert(!curio_app.configured);
+    free(config);
+    config = read_config(&revision);
+    assert(!strcmp(config->network.ssid, "Studio WiFi") && !strcmp(config->tls.certificate, "supplied-cert"));
+    assert(!strcmp(curio_app.network.hostname, "curio-studio") && !strcmp(curio_app.tls.private_key, "supplied-key"));
+    prepared = tls_prepares;
+    assert(save_config(config, revision) == ESP_OK && tls_prepares == prepared);
+    assert(curio_settings_set_brightness(44) == ESP_OK && tls_prepares == prepared);
+    assert(curio_settings_set_token(true, "another-admin-token-123456") == ESP_OK && tls_prepares == prepared);
+    assert(curio_settings_init() == ESP_OK && tls_prepares == prepared);
+    assert(curio_app.configured);
+    assert(!strcmp(curio_app.network.ssid, "Studio WiFi") && !strcmp(curio_app.tls.certificate, "supplied-cert"));
+    free(config);
+    config = read_config(&revision);
+    assert(!strcmp(config->network.password, "password123") && !strcmp(config->tls.private_key, "supplied-key"));
+    strcpy(config->network.hostname, "curio-renamed");
+    memset(&config->tls, 0, sizeof(config->tls));
+    assert(save_config(config, revision) == ESP_OK && tls_prepares == prepared + 1);
+    free(config);
+    config = read_config(&revision);
+    assert(!strcmp(config->network.hostname, "curio-renamed"));
+    assert(!strcmp(config->tls.certificate, "generated-cert:curio-renamed"));
+    assert(!strcmp(config->tls.private_key, "generated-key"));
+
+    char *saved_yaml = curio_settings_yaml(NULL);
+    assert(saved_yaml);
+    unsigned saved_commits = commits;
+    strcpy(config->tls.certificate, "bad-cert");
+    strcpy(config->tls.private_key, "bad-key");
+    assert(save_config(config, revision) == ESP_ERR_INVALID_ARG && tls_prepares == prepared + 2);
+    assert(commits == saved_commits && !strcmp(curio_app.tls.certificate, "generated-cert:curio-renamed"));
+    char *after_yaml = curio_settings_yaml(NULL);
+    assert(after_yaml && !strcmp(saved_yaml, after_yaml));
+    free(saved_yaml);
+    free(after_yaml);
     free(config);
 }
 static void test_page_paging(void)
@@ -252,6 +313,7 @@ static void test_concurrent_saves(void)
 int main(void)
 {
     test_configuration();
+    test_network_tls();
     test_page_paging();
     test_rules_preserved();
     test_concurrent_saves();

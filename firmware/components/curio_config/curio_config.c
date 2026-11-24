@@ -166,6 +166,30 @@ static bool ntp_server_valid(const char *server)
     return true;
 }
 
+static bool network_config_valid(const curio_network_config_t *network)
+{
+    if (!network) return false;
+    size_t ssid = strnlen(network->ssid, sizeof(network->ssid));
+    size_t password = strnlen(network->password, sizeof(network->password));
+    size_t hostname = strnlen(network->hostname, sizeof(network->hostname));
+    if (ssid > 32 || password > 63 || (password && password < 8) ||
+        !hostname || hostname > 32) return false;
+    for (size_t i = 0; i < hostname; i++) {
+        unsigned char c = network->hostname[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || (c == '-' && i && i + 1 < hostname))) return false;
+    }
+    return true;
+}
+
+static bool tls_config_valid(const curio_tls_config_t *tls)
+{
+    size_t certificate = strnlen(tls->certificate, sizeof(tls->certificate));
+    size_t private_key = strnlen(tls->private_key, sizeof(tls->private_key));
+    return certificate < sizeof(tls->certificate) && private_key < sizeof(tls->private_key) &&
+        (certificate == 0) == (private_key == 0);
+}
+
 static bool utc_offset(const cJSON *widget, int *out)
 {
     char s[7];
@@ -306,8 +330,9 @@ bool curio_config_parse(const char *yaml, size_t size, curio_config_t *config, c
     memset(next, 0, sizeof(*next));
     double value;
     const cJSON *access = field(root, "access"), *device = field(root, "device");
+    const cJSON *network = field(root, "network"), *tls = field(root, "tls");
     reason = "invalid root fields or version";
-    if (!fields(root, "version|access|device|screen|alerts") || !number(root, "version", 1, 1, 1, true, &value)) goto done;
+    if (!fields(root, "version|access|device|screen|alerts|network|tls") || !number(root, "version", 1, 1, 1, true, &value)) goto done;
     reason = "invalid access tokens or fields";
     if (!fields(access, "admin_token|collector_token") || !token(access, "admin_token", next->access.admin_token) ||
         !token(access, "collector_token", next->access.collector_token)) goto done;
@@ -319,6 +344,17 @@ bool curio_config_parse(const char *yaml, size_t size, curio_config_t *config, c
     if (!boolean(device, "auto_rotate", false, &next->device.auto_rotate)) goto done;
     if (!string(device, "ntp_server", next->device.ntp_server, sizeof(next->device.ntp_server), "pool.ntp.org") ||
         !ntp_server_valid(next->device.ntp_server)) goto done;
+    reason = "invalid network fields";
+    if ((network && !fields(network, "ssid|password|hostname")) ||
+        !string(network, "ssid", next->network.ssid, sizeof(next->network.ssid), "") ||
+        !string(network, "password", next->network.password, sizeof(next->network.password), "") ||
+        !string(network, "hostname", next->network.hostname, sizeof(next->network.hostname), "curio") ||
+        !network_config_valid(&next->network)) goto done;
+    reason = "invalid TLS fields";
+    if (tls && (!fields(tls, "certificate|private_key") ||
+        !string(tls, "certificate", next->tls.certificate, sizeof(next->tls.certificate), NULL) ||
+        !string(tls, "private_key", next->tls.private_key, sizeof(next->tls.private_key), NULL) ||
+        !tls_config_valid(&next->tls) || !*next->tls.certificate)) goto done;
     reason = "invalid screen pages or widgets";
     if (!screen_parse(field(root, "screen"), &next->display)) goto done;
     reason = "invalid alerts rules or volume";
@@ -361,6 +397,17 @@ static cJSON *config_tree(const curio_config_t *c)
         !put_number(alerts, "vibration_strength", c->alerts.vibration_strength) ||
         !put_bool(alerts, "flash_enabled", c->alerts.flash_enabled)) goto fail;
     if (strcmp(c->device.ntp_server, "pool.ntp.org") && !put_string(device, "ntp_server", c->device.ntp_server)) goto fail;
+    if (*c->network.ssid || *c->network.password || strcmp(c->network.hostname, "curio")) {
+        cJSON *network = object(root, "network");
+        if (!network || !put_string(network, "ssid", c->network.ssid) ||
+            (*c->network.password && !put_string(network, "password", c->network.password)) ||
+            (strcmp(c->network.hostname, "curio") && !put_string(network, "hostname", c->network.hostname))) goto fail;
+    }
+    if (*c->tls.certificate) {
+        cJSON *tls = object(root, "tls");
+        if (!tls || !put_string(tls, "certificate", c->tls.certificate) ||
+            !put_string(tls, "private_key", c->tls.private_key)) goto fail;
+    }
     if (strcmp(c->display.default_page, c->display.pages[0].id) && !put_string(screen, "default_page", c->display.default_page)) goto fail;
     cJSON *pages = cJSON_AddArrayToObject(screen, "pages");
     cJSON *rules = c->alerts.rule_count ? cJSON_AddArrayToObject(alerts, "rules") : NULL;
@@ -473,7 +520,14 @@ static bool emit_node(yaml_emitter_t *emitter, const cJSON *node)
         initialized = map ? yaml_mapping_end_event_initialize(&event) : yaml_sequence_end_event_initialize(&event);
         return initialized && yaml_emitter_emit(emitter, &event);
     }
-    if (cJSON_IsString(node)) return emit_scalar(emitter, node->valuestring, true);
+    if (cJSON_IsString(node)) {
+        if (node->string && (!strcmp(node->string, "certificate") || !strcmp(node->string, "private_key"))) {
+            yaml_event_t scalar;
+            return yaml_scalar_event_initialize(&scalar, NULL, NULL, (const unsigned char *)node->valuestring,
+                (int)strlen(node->valuestring), 1, 1, YAML_LITERAL_SCALAR_STYLE) && yaml_emitter_emit(emitter, &scalar);
+        }
+        return emit_scalar(emitter, node->valuestring, true);
+    }
     if (cJSON_IsBool(node)) return emit_scalar(emitter, cJSON_IsTrue(node) ? "true" : "false", false);
     if (cJSON_IsNumber(node)) {
         char buffer[32];
@@ -487,6 +541,7 @@ char *curio_config_yaml(const curio_config_t *config)
     if (!config || curio_layout_validate(&config->display) != CURIO_OK || config->device.brightness > 100 ||
         config->device.rotation > 270 || config->device.rotation % 90) return NULL;
     if (!ntp_server_valid(config->device.ntp_server)) return NULL;
+    if (!network_config_valid(&config->network) || !tls_config_valid(&config->tls)) return NULL;
     if (!curio_alert_config_validate(&config->alerts)) return NULL;
     cJSON *tree = config_tree(config);
     yaml_output_t out = {.data = cJSON_malloc(CURIO_CONFIG_MAX_BYTES + 1)};

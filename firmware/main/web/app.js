@@ -19,6 +19,7 @@ let token = sessionStorage.getItem("curio-token") || "",
   yamlDirty = false,
   display,
   device,
+  network,
   alerts,
   state = { hosts: [] },
   tab = "screen",
@@ -377,10 +378,14 @@ function parseConfig(source) {
     for (const key of Object.keys(object))
       if (!allowed.includes(key)) throw Error(`未知字段: ${path}.${key}`);
   };
-  keys(value, ["version", "access", "device", "screen", "alerts"], "config");
+  keys(value, ["version", "access", "device", "network", "tls", "screen", "alerts"], "config");
   keys(value.access, ["admin_token", "collector_token"], "access");
   if (value.device !== undefined)
     keys(value.device, ["brightness", "rotation", "auto_rotate", "ntp_server"], "device");
+  if (value.network !== undefined)
+    keys(value.network, ["ssid", "password", "hostname"], "network");
+  if (value.tls !== undefined)
+    keys(value.tls, ["certificate", "private_key"], "tls");
   keys(value.screen, ["default_page", "pages"], "screen");
   const pageIds = new Set();
   const checkId = (id, ids, path) => {
@@ -455,6 +460,8 @@ function parseConfig(source) {
     auto_rotate: "boolean", flash_enabled: "boolean", auto_page: "boolean",
     enabled: "boolean", sound: "boolean", vibrate: "boolean", flash: "boolean",
     include_idle: "boolean", seconds: "boolean", utc_offset: "string", ntp_server: "string",
+    ssid: "string", password: "string", hostname: "string",
+    certificate: "string", private_key: "string",
   };
   function scalarTypes(object, path) {
     for (const [key, item] of Object.entries(object)) {
@@ -467,6 +474,18 @@ function parseConfig(source) {
   }
   scalarTypes(value, "config");
   validateNtp(value.device?.ntp_server ?? "pool.ntp.org");
+  const bytes = (text) => new TextEncoder().encode(text).length;
+  const ssid = value.network?.ssid ?? "", password = value.network?.password ?? "",
+    hostname = value.network?.hostname ?? "curio";
+  if (bytes(ssid) > 32) throw Error("network.ssid 最多 32 字节");
+  if (password && (bytes(password) < 8 || bytes(password) > 63))
+    throw Error("network.password 须为 8–63 字节，或留空");
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,30}[A-Za-z0-9])?$/.test(hostname))
+    throw Error("network.hostname 须为 1–32 位主机名");
+  if (value.tls !== undefined &&
+      (!value.tls.certificate || !value.tls.private_key ||
+       bytes(value.tls.certificate) > 2047 || bytes(value.tls.private_key) > 2047))
+    throw Error("tls.certificate 和 tls.private_key 须同时填写，且各不超过 2047 字节");
   if (value.version !== undefined && value.version !== 1)
     throw Error("version 须为 1");
   if (value.device?.rotation !== undefined &&
@@ -562,17 +581,23 @@ function projectConfig(value) {
   };
   display = projectedDisplay;
   device = projectedDevice;
+  network = { ssid: "", password: "", hostname: "curio", ...value.network };
   alerts = projectedAlerts;
   selected = Math.max(0, Math.min(selected, display.pages.length - 1));
 }
 function configFromForms() {
-  return {
+  const result = {
     ...configDocument,
     device: {
       brightness: device.brightness,
       rotation: device.rotation,
       auto_rotate: device.auto_rotate,
       ...(device.ntp_server !== "pool.ntp.org" ? { ntp_server: device.ntp_server } : {}),
+    },
+    network: {
+      ssid: network.ssid,
+      ...(network.password ? { password: network.password } : {}),
+      ...(network.hostname !== "curio" ? { hostname: network.hostname } : {}),
     },
     screen: {
       default_page: display.default_page,
@@ -649,6 +674,9 @@ function configFromForms() {
       }),
     },
   };
+  if (network.hostname !== (configDocument.network?.hostname ?? "curio"))
+    delete result.tls;
+  return result;
 }
 function syncFormYaml() {
   if (!displayDirty && !deviceDirty && !alertsDirty) return;
@@ -1139,7 +1167,7 @@ function renderEditor() {
   }
   if (tab === "device") {
     $("#editor").innerHTML =
-      `<section class="panel"><h2>设备</h2><label>NTP 服务器<input id="ntp-server" maxlength="127" value="${esc(device.ntp_server)}"></label><label>亮度<input id="brightness" type="number" min="0" max="100" value="${device.brightness}"></label><label class="switch-field"><input id="auto-rotate" type="checkbox" role="switch" ${device.auto_rotate ? "checked" : ""}><span>自动旋转</span></label><label>手动方向<select id="rotation" ${device.auto_rotate ? "disabled" : ""}>${[0, 90, 180, 270].map((x) => `<option value="${x}" ${x === device.rotation ? "selected" : ""}>${x}°</option>`).join("")}</select></label><div class="actions"><button id="save-device">保存</button><button id="reload">重新加载</button></div></section>`;
+      `<section class="panel"><h2>设备</h2><label>NTP 服务器<input id="ntp-server" maxlength="127" value="${esc(device.ntp_server)}"></label><label>亮度<input id="brightness" type="number" min="0" max="100" value="${device.brightness}"></label><label class="switch-field"><input id="auto-rotate" type="checkbox" role="switch" ${device.auto_rotate ? "checked" : ""}><span>自动旋转</span></label><label>手动方向<select id="rotation" ${device.auto_rotate ? "disabled" : ""}>${[0, 90, 180, 270].map((x) => `<option value="${x}" ${x === device.rotation ? "selected" : ""}>${x}°</option>`).join("")}</select></label><h3>网络</h3><label>Wi-Fi 名称<input id="network-ssid" maxlength="32" value="${esc(network.ssid)}"></label><label>Wi-Fi 密码<input id="network-password" type="password" maxlength="63" value="${esc(network.password)}"></label><label>主机名<input id="network-hostname" maxlength="32" value="${esc(network.hostname)}"></label><p>网络设置和证书在重启后生效。</p><div class="actions"><button id="save-device">保存</button><button id="reload">重新加载</button><button id="restart-device">重启</button><button id="download-certificate" ${configDocument.tls?.certificate ? "" : "disabled"}>下载证书</button></div></section>`;
     return;
   }
   const p = page();
@@ -1440,6 +1468,14 @@ document.addEventListener("change", (e) => {
     status("");
     return;
   }
+  if (t.id === "network-ssid" || t.id === "network-password" || t.id === "network-hostname") {
+    network[t.id.slice(8)] = t.id === "network-hostname" ? t.value.trim() : t.value;
+    $("#download-certificate").disabled = !configDocument.tls?.certificate ||
+      network.hostname !== (configDocument.network?.hostname ?? "curio");
+    deviceDirty = true;
+    status("");
+    return;
+  }
   if (t.id === "brightness" || t.id === "rotation" || t.id === "auto-rotate") {
     if (t.id === "auto-rotate") {
       device.auto_rotate = t.checked;
@@ -1607,6 +1643,28 @@ document.addEventListener("click", async (e) => {
       await saveConfig();
     } else if (t.id === "reload" || t.id === "reload-config") {
       await reloadConfig();
+    } else if (t.id === "restart-device") {
+      if (dirty()) throw Error("请先保存或重新加载配置");
+      if (!confirm("重启设备？")) return;
+      const response = await fetch("/api/v2/restart", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token },
+      });
+      if (response.status === 401) {
+        logout();
+        throw Error("管理 Token 无效");
+      }
+      if (!response.ok) throw Error(`重启失败 (${response.status})`);
+      status("设备正在重启，请稍后重新连接");
+    } else if (t.id === "download-certificate") {
+      const certificate = configDocument.tls?.certificate;
+      if (!certificate) return;
+      const url = URL.createObjectURL(new Blob([certificate], { type: "application/x-pem-file" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${network.hostname}.crt`;
+      link.click();
+      URL.revokeObjectURL(url);
     } else if (t.id === "export-yaml") {
       syncFormYaml();
       const url = URL.createObjectURL(

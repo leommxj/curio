@@ -54,6 +54,14 @@ sys.exit(7 if os.environ.get('CURIO_TEST_FAIL') in sys.argv[1:] else 0)
         self.assertEqual([c[0] for c in calls], ['scripts/bootstrap.py', 'scripts/firmware/mosaico.py'])
         self.assertEqual(calls[-1][-1], bundle)
 
+    def test_provision_uses_config_and_device_without_building(self):
+        config = str(self.folder / "private config/curio.yaml")
+        result, calls = self.run_make('provision', 'CONFIG=' + config, 'DEVICE=board-1')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, [['scripts/bootstrap.py'],
+                                 ['scripts/firmware/provision.py', '--config', config,
+                                  '--device-id', 'board-1']])
+
     def test_collector_build_does_not_need_firmware_tools(self):
         result, calls = self.run_make('collector')
         self.assertEqual(result.returncode, 0, result.stderr)

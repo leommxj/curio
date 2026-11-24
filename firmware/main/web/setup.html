@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>设置 Curio</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/vendor/js-yaml.min.js" defer></script>
+    <script src="/setup.js" defer></script>
+  </head>
+  <body class="setup-page">
+    <header><strong>curio</strong><span>设备设置</span></header>
+    <main class="setup-shell">
+      <section class="panel">
+        <form id="setup-form" hidden>
+          <h1>连接网络</h1>
+          <label>Wi-Fi 名称<input id="ssid" required autocomplete="off" /></label>
+          <label>Wi-Fi 密码<input id="password" type="password" autocomplete="off" placeholder="留空表示开放网络" /></label>
+          <label>设备名称<input id="hostname" required maxlength="32" pattern="[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?" value="curio" autocomplete="off" /></label>
+          <button id="save-setup" type="submit">保存设置</button>
+        </form>
+        <section id="setup-saved" hidden>
+          <h1>设置已保存</h1>
+          <div class="setup-secret"><span>管理 Token</span><code id="admin-token"></code></div>
+          <div class="setup-secret"><span>采集 Token</span><code id="collector-token"></code></div>
+          <div class="setup-actions">
+            <button id="download-cert" type="button">下载证书</button>
+            <button id="download-config" type="button">下载完整配置</button>
+          </div>
+          <div class="setup-next">
+            <button id="restart" type="button">连接</button>
+            <a id="device-link" target="_blank" rel="noopener"></a>
+          </div>
+          <button id="edit-setup" class="setup-edit" type="button">修改网络设置</button>
+        </section>
+        <p id="setup-status" role="status"></p>
+        <button id="reload-setup" type="button" hidden>重新加载</button>
+      </section>
+    </main>
+  </body>
+</html>

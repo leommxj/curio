@@ -18,6 +18,8 @@ static void test_defaults(void)
     char error[80];
     assert(curio_config_parse(minimal, strlen(minimal), &config, error, sizeof(error)) && !*error);
     assert(config.device.brightness == 75 && config.device.rotation == 0 && !config.device.auto_rotate);
+    assert(!*config.network.ssid && !*config.network.password && !strcmp(config.network.hostname, "curio"));
+    assert(!*config.tls.certificate && !*config.tls.private_key);
     assert(config.display.page_count == 1 && !strcmp(config.display.default_page, "home"));
     curio_widget_config_t *w = &config.display.pages[0].widgets[0];
     assert(!strcmp(w->id, "agents-1") && !strcmp(w->title, "Agents") && w->col == 0 && w->row == 0 && w->cols == 4 && w->rows == 6);
@@ -27,6 +29,7 @@ static void test_defaults(void)
     assert(yaml && !strstr(yaml, "revision") && strstr(yaml, "admin_token:") && strstr(yaml, "vibration_strength: 60") && strstr(yaml, "flash_enabled: false") && !strstr(yaml, "flash:") && !strstr(yaml, "vibrate:"));
     assert(strstr(yaml, "at: [0, 0]") && strstr(yaml, "size: [4, 6]") && !strstr(yaml, "slot:") && !strstr(yaml, "layout:"));
     assert(!strstr(yaml, "auto_page:") && !strstr(yaml, "source:") && !strstr(yaml, "hosts:"));
+    assert(!strstr(yaml, "network:") && !strstr(yaml, "tls:"));
     assert(curio_config_parse(yaml, strlen(yaml), &config, error, sizeof(error)));
     cJSON_free(yaml);
 }
@@ -101,6 +104,80 @@ static void test_invalid(void)
       "access: {admin_token: abcdefghijklmnop, collector_token: abcdefghijklmnop}\nscreen: {pages: [{id: p, widgets: [{type: agents, unknown: true}]}]}\n"
     };
     for (size_t i = 0; i < sizeof(invalid) / sizeof(*invalid); i++) assert(!curio_config_parse(invalid[i], strlen(invalid[i]), &config, NULL, 0));
+}
+static void test_network_tls(void)
+{
+    const char *yaml =
+        "network: {ssid: '工作室 WiFi', password: 'password123', hostname: curio-desk}\n"
+        "tls:\n"
+        "  certificate: |\n"
+        "    -----BEGIN CERTIFICATE-----\n"
+        "    example-certificate\n"
+        "    -----END CERTIFICATE-----\n"
+        "  private_key: |\n"
+        "    -----BEGIN PRIVATE KEY-----\n"
+        "    example-key\n"
+        "    -----END PRIVATE KEY-----\n";
+    size_t n = strlen(minimal) + strlen(yaml) + 1;
+    char *input = malloc(n);
+    assert(input);
+    strcpy(input, minimal);
+    strcat(input, yaml);
+    assert(curio_config_parse(input, strlen(input), &config, NULL, 0));
+    assert(!strcmp(config.network.ssid, "工作室 WiFi") && !strcmp(config.network.password, "password123"));
+    assert(!strcmp(config.network.hostname, "curio-desk"));
+    assert(strstr(config.tls.certificate, "example-certificate\n"));
+    curio_config_t *before = calloc(1, sizeof(*before));
+    assert(before);
+    *before = config;
+    char *out = curio_config_yaml(&config);
+    assert(out && strstr(out, "certificate: |") && strstr(out, "private_key: |"));
+    assert(curio_config_parse(out, strlen(out), &config, NULL, 0));
+    assert(!memcmp(before, &config, sizeof(config)));
+    cJSON_free(out);
+    free(before);
+    free(input);
+
+    const char *invalid[] = {
+        "network: null\n", "network: {ssid: true}\n", "network: {ssid: 123}\n",
+        "network: {ssid: abc, password: short}\n", "network: {hostname: ''}\n",
+        "network: {hostname: -curio}\n", "network: {hostname: curio-}\n",
+        "network: {hostname: curio.local}\n", "network: {hostname: curio_name}\n",
+        "network: {extra: value}\n", "tls: null\n", "tls: {}\n",
+        "tls: {certificate: cert}\n", "tls: {private_key: key}\n",
+        "tls: {certificate: '', private_key: key}\n",
+        "tls: {certificate: cert, private_key: ''}\n",
+        "tls: {certificate: cert, private_key: key, extra: x}\n"
+    };
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(*invalid); i++) reject(invalid[i]);
+
+    char suffix[2300];
+    char value[2100];
+    memset(value, 'a', sizeof(value));
+    value[32] = 0;
+    snprintf(suffix, sizeof(suffix), "network: {ssid: '%s'}\n", value);
+    n = strlen(minimal) + strlen(suffix) + 1;
+    input = malloc(n); assert(input);
+    strcpy(input, minimal); strcat(input, suffix);
+    assert(curio_config_parse(input, strlen(input), &config, NULL, 0));
+    free(input);
+    value[32] = 'a'; value[33] = 0;
+    snprintf(suffix, sizeof(suffix), "network: {ssid: '%s'}\n", value);
+    reject(suffix);
+    memset(value, 'a', sizeof(value));
+    value[63] = 0;
+    snprintf(suffix, sizeof(suffix), "network: {ssid: radio, password: '%s'}\n", value);
+    n = strlen(minimal) + strlen(suffix) + 1;
+    input = malloc(n); assert(input);
+    strcpy(input, minimal); strcat(input, suffix);
+    assert(curio_config_parse(input, strlen(input), &config, NULL, 0));
+    free(input);
+    value[63] = 'a'; value[64] = 0;
+    snprintf(suffix, sizeof(suffix), "network: {ssid: radio, password: '%s'}\n", value);
+    reject(suffix);
+    memset(value, 'a', sizeof(value)); value[2048] = 0;
+    snprintf(suffix, sizeof(suffix), "tls: {certificate: '%s', private_key: key}\n", value);
+    reject(suffix);
 }
 static void test_grid_fields(void)
 {
@@ -227,6 +304,6 @@ static void test_clock(void)
 
 int main(void)
 {
-    test_clock(); test_defaults(); test_roundtrip(); test_invalid(); test_grid_fields(); test_allocation_failure();
+    test_clock(); test_defaults(); test_roundtrip(); test_invalid(); test_network_tls(); test_grid_fields(); test_allocation_failure();
     puts("config tests passed");
 }
