@@ -127,30 +127,21 @@ class ProvisionTest(unittest.TestCase):
                                        '--device-id', 'board-1'])
         self.assertTrue(all(tool_root == self.provision.TOOL_ROOT for _, tool_root in calls))
 
-    def test_failed_write_does_not_restart(self):
+    def test_failed_write_or_commit_does_not_restart(self):
         self.config.write_text('version: 1\n')
-        calls = []
-        module = types.ModuleType('mosaico_cli.cli')
-        module.main = lambda args, **kwargs: calls.append(args) or 5
-        with patch.dict(sys.modules, {'mosaico_cli': types.ModuleType('mosaico_cli'),
-                                      'mosaico_cli.cli': module}):
-            result = self.provision.main(['--config', str(self.config)])
-        self.assertEqual(result, 5)
-        self.assertEqual(len(calls), 1)
-
-    def test_failed_commit_does_not_restart(self):
-        self.config.write_text('version: 1\n')
-        calls = []
-        module = types.ModuleType('mosaico_cli.cli')
-        def fake_main(args, **kwargs):
-            calls.append(args)
-            return 5 if args[3] == '2' else 0
-        module.main = fake_main
-        with patch.dict(sys.modules, {'mosaico_cli': types.ModuleType('mosaico_cli'),
-                                      'mosaico_cli.cli': module}):
-            result = self.provision.main(['--config', str(self.config)])
-        self.assertEqual(result, 5)
-        self.assertEqual([args[3] for args in calls], ['1', '2'])
+        for failed_method in ('1', '2'):
+            with self.subTest(method=failed_method):
+                calls = []
+                module = types.ModuleType('mosaico_cli.cli')
+                def fake_main(args, **kwargs):
+                    calls.append(args[3])
+                    return 5 if args[3] == failed_method else 0
+                module.main = fake_main
+                with patch.dict(sys.modules, {'mosaico_cli': types.ModuleType('mosaico_cli'),
+                                              'mosaico_cli.cli': module}):
+                    result = self.provision.main(['--config', str(self.config)])
+                self.assertEqual(result, 5)
+                self.assertEqual(calls, ['1'] if failed_method == '1' else ['1', '2'])
 
     def test_oversize_config_is_rejected_before_rpc(self):
         self.config.write_bytes(b'a' * 16385)

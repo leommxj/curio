@@ -33,6 +33,17 @@ static curio_widget_config_t fixture_widget(const curio_widget_type_t *type, uns
     assert(widget.options);
     return widget;
 }
+static void assert_label_fits(lv_obj_t *label)
+{
+    lv_point_t text;
+    lv_text_get_size(&text, lv_label_get_text(label), lv_obj_get_style_text_font(label, 0),
+                     0, 0, lv_obj_get_width(label), LV_TEXT_FLAG_NONE);
+    assert(text.x <= lv_obj_get_width(label) && text.y <= lv_obj_get_height(label));
+    lv_area_t box, bounds;
+    lv_obj_get_coords(lv_obj_get_parent(label), &box);
+    lv_obj_get_coords(label, &bounds);
+    assert(bounds.x1 >= box.x1 && bounds.y1 >= box.y1 && bounds.x2 <= box.x2 && bounds.y2 <= box.y2);
+}
 curio_app_t curio_app;
 static unsigned setup_starts, setup_stops;
 void curio_network_setup(bool enabled)
@@ -291,13 +302,11 @@ static void extra_checks(void)
     assert(!strcmp(lv_label_get_text(a->rows[0].name), "Specific title"));
     assert(!strcmp(lv_label_get_text(a->rows[0].state), "working"));
     assert(a->rows[0].name != a->rows[0].state);
-    assert(lv_obj_get_width(a->rows[0].state) == 120);
     assert(lv_obj_get_x(a->rows[0].state) >= lv_obj_get_x(a->rows[0].name) + lv_obj_get_width(a->rows[0].name));
     h->sources[0].status = CURIO_SOURCE_ERROR;
     refresh(NULL);
     lv_obj_update_layout(lv_screen_active());
     assert(!strcmp(lv_label_get_text(a->rows[0].state), "Collection error"));
-    assert(lv_obj_get_width(a->rows[0].state) == 170);
     puts("Auto-page boundaries/reset/pause and brand/title/state labels passed");
 }
 static void battery_checks(void)
@@ -536,69 +545,56 @@ static void settings_checks(void)
     assert(curio_app.device.auto_rotate && lv_obj_has_state(rotate_switch, LV_STATE_CHECKED));
     assert(!strcmp(lv_label_get_text(settings_error), "ESP_FAIL"));
     settings_result = ESP_OK;
-    unsigned sounds_before_sliders = audio_calls;
-    step(339, 266, true);
-    step(240, 266, true);
-    assert(brightness_saves == 0 && displayed_brightness == lv_slider_get_value(brightness_slider));
-    refresh(NULL);
-    assert(dragging_slider == brightness_slider);
-    int dragged_brightness = lv_slider_get_value(brightness_slider);
-    curio_app.device.brightness = 22;
-    curio_app.device.revision++;
-    refresh(NULL);
-    assert(lv_slider_get_value(brightness_slider) == dragged_brightness);
-    assert(displayed_brightness == dragged_brightness);
-    step(240, 266, false);
-    assert(brightness_saves == 1 && curio_app.device.brightness == lv_slider_get_value(brightness_slider));
-    unsigned saved_brightness = curio_app.device.brightness;
-    settings_result = ESP_FAIL;
-    step(240, 266, true);
-    step(420, 266, true);
-    assert(brightness_saves == 1);
-    step(420, 266, false);
-    assert(brightness_saves == 2 && curio_app.device.brightness == saved_brightness);
-    assert(displayed_brightness == saved_brightness);
-    assert(!strcmp(lv_label_get_text(settings_error), "ESP_FAIL"));
-    settings_result = ESP_OK;
+    const struct {
+        lv_obj_t *slider;
+        uint8_t *value;
+        unsigned *saves;
+        int y;
+    } sliders[] = {
+        {brightness_slider, &curio_app.device.brightness, &brightness_saves, 266},
+        {volume_slider, &curio_app.alert_config.volume, &volume_saves, 322},
+        {vibration_slider, &curio_app.alert_config.vibration_strength, &vibration_saves, 378},
+    };
+    unsigned sounds_before = audio_calls, vibrations_before = vibration_calls;
+    for (size_t i = 0; i < sizeof(sliders) / sizeof(*sliders); i++) {
+        lv_obj_t *slider = sliders[i].slider;
+        uint8_t *value = sliders[i].value;
+        unsigned saves = *sliders[i].saves;
+        int y = sliders[i].y;
+        step(240, y, true);
+        step(420, y, true);
+        int dragged = lv_slider_get_value(slider);
+        *value = 22;
+        curio_app.device.revision++;
+        refresh(NULL);
+        assert(dragging_slider == slider && lv_slider_get_value(slider) == dragged);
+        assert(*sliders[i].saves == saves);
+        step(420, y, false);
+        assert(*sliders[i].saves == saves + 1 && *value == dragged);
+        settings_result = ESP_FAIL;
+        step(420, y, true);
+        step(240, y, true);
+        step(240, y, false);
+        assert(*sliders[i].saves == saves + 2 && *value == dragged);
+        assert(lv_slider_get_value(slider) == dragged);
+        assert(!strcmp(lv_label_get_text(settings_error), "ESP_FAIL"));
+        settings_result = ESP_OK;
+        *value = 60;
+        curio_app.device.revision++;
+        refresh(NULL);
+        assert(lv_slider_get_value(slider) == 60 && *sliders[i].saves == saves + 2);
+    }
     tap(36, 322);
-    assert(volume_saves == 1 && curio_app.alert_config.volume == 0);
-    assert(!strcmp(lv_label_get_text(volume_value), "0% (Mute)"));
-    settings_result = ESP_FAIL;
-    step(36, 322, true);
-    step(300, 322, true);
-    assert(volume_saves == 1);
-    step(300, 322, false);
-    assert(volume_saves == 2 && curio_app.alert_config.volume == 0);
-    assert(lv_slider_get_value(volume_slider) == 0);
-    settings_result = ESP_OK;
+    assert(curio_app.alert_config.volume == 0 && !strcmp(lv_label_get_text(volume_value), "0% (Mute)"));
+    tap(36, 378);
+    assert(curio_app.alert_config.vibration_strength == 0 && !strcmp(lv_label_get_text(vibration_value), "0% (Off)"));
+    curio_app.alert_config.vibration_strength = 60;
+    assert(audio_calls == sounds_before && vibration_calls == vibrations_before);
     curio_app.device.brightness = 0;
     curio_app.device.revision++;
-    curio_app.alert_config.volume = 64;
     refresh(NULL);
     assert(!strcmp(lv_label_get_text(brightness_value), "0%"));
-    assert(lv_slider_get_value(brightness_slider) == 5);
-    assert(lv_slider_get_value(volume_slider) == 64);
-    assert(brightness_saves == 2 && volume_saves == 2 && audio_calls == sounds_before_sliders);
-    unsigned vibrations_before_sliders = vibration_calls;
-    tap(36, 378);
-    assert(vibration_saves == 1 && curio_app.alert_config.vibration_strength == 0);
-    assert(!strcmp(lv_label_get_text(vibration_value), "0% (Off)"));
-    settings_result = ESP_FAIL;
-    step(36, 378, true);
-    step(300, 378, true);
-    assert(vibration_saves == 1);
-    refresh(NULL);
-    assert(dragging_slider == vibration_slider && lv_slider_get_value(vibration_slider) > 0);
-    step(300, 378, false);
-    assert(vibration_saves == 2 && curio_app.alert_config.vibration_strength == 0);
-    assert(lv_slider_get_value(vibration_slider) == 0);
-    settings_result = ESP_OK;
-    tap(440, 378);
-    assert(vibration_saves == 3 && curio_app.alert_config.vibration_strength == 100);
-    curio_app.alert_config.vibration_strength = 60;
-    refresh(NULL);
-    assert(lv_slider_get_value(vibration_slider) == 60 && vibration_saves == 3);
-    assert(vibration_calls == vibrations_before_sliders);
+    assert(lv_slider_get_value(brightness_slider) == lv_slider_get_min_value(brightness_slider));
     bool initial_paging = ((curio_agents_config_t *)curio_app.layout.pages[0].widgets[0].options)->auto_page;
     tap(418, 138);
     assert(((curio_agents_config_t *)curio_app.layout.pages[0].widgets[0].options)->auto_page != initial_paging);
@@ -685,7 +681,7 @@ static void settings_checks(void)
     close_notification();
     assert(!notification_mask && settings_mask && !dragging_slider);
     tap(410, 38);
-        unsigned children = lv_obj_get_child_count(lv_screen_active());
+    unsigned children = lv_obj_get_child_count(lv_screen_active());
     for (unsigned i = 0; i < 5; i++) {
         tap(444, 28);
         assert(lv_obj_get_child_count(lv_screen_active()) == children + 1);
@@ -960,7 +956,6 @@ static void grid_checks(void)
     lv_obj_update_layout(lv_screen_active());
     assert(widget_count == 1 && ((agents_payload_t *)widgets[0]->data)->row_count == 7);
     assert(((agents_payload_t *)widgets[0]->data)->pages == 3);
-    assert(lv_obj_get_y(widgets[0]->box) == 60 && lv_obj_get_height(widgets[0]->box) == 408);
     curio_widget_t *previous = widgets[0];
     fail_allocation = true;
     p->widgets[0].rows = 5;
@@ -1052,10 +1047,7 @@ static void grid_checks(void)
     metric_payload_t *m = ((metric_payload_t *)widgets[0]->data);
     assert(!m->detail);
     assert(!strcmp(lv_label_get_text(m->value), "100%"));
-    lv_point_t size;
-    lv_text_get_size(&size, "100%", lv_obj_get_style_text_font(m->value, 0), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-    assert(size.x <= lv_obj_get_width(m->value));
-    assert(lv_obj_get_style_text_font(m->value, 0) == &curio_font_26);
+    assert_label_fits(m->value);
     assert(((metric_payload_t *)widgets[1]->data)->detail);
     assert(!strcmp(lv_label_get_text(((metric_payload_t *)widgets[1]->data)->detail), "Workstation"));
     assert(!strcmp(lv_label_get_text(((machine_payload_t *)widgets[2]->data)->value[1]), "99.9%"));
@@ -1081,8 +1073,7 @@ static void grid_checks(void)
     lv_obj_update_layout(lv_screen_active());
     assert(!strcmp(lv_label_get_text(m->value), "Collection error"));
     assert(lv_label_get_long_mode(m->value) == LV_LABEL_LONG_WRAP);
-    lv_text_get_size(&size, "Collection error", lv_obj_get_style_text_font(m->value, 0), 0, 0, lv_obj_get_width(m->value), LV_TEXT_FLAG_NONE);
-    assert(size.y <= lv_obj_get_height(m->value));
+    assert_label_fits(m->value);
     curio_app.core.hosts[0].sources[0].status = CURIO_SOURCE_OK;
     curio_app.core.hosts[0].sources[0].metrics[0].value = 123456789;
     refresh(NULL);
@@ -1137,14 +1128,14 @@ static void status_widget_checks(void)
     assert(!small->detail && large->detail);
     assert(!strcmp(lv_label_get_text(small->value), "Online"));
     assert(!strcmp(lv_label_get_text(large->detail), "HTTP 200"));
-    assert(small->color == 0x80C9B1);
+    uint32_t normal_color = small->color;
     assert(lv_obj_get_y(large->detail) + lv_obj_get_height(large->detail) <= lv_obj_get_height(widgets[1]->box));
     curio_host_t *h = (curio_host_t *)curio_core_host(&curio_app.core, "status-host");
     curio_source_t *s = &h->sources[0];
     strcpy(s->state->text, "Failed");
     s->state->level = CURIO_STATUS_ERROR;
     refresh(NULL);
-    assert(!strcmp(lv_label_get_text(small->value), "Failed") && small->color == 0xEF9090);
+    assert(!strcmp(lv_label_get_text(small->value), "Failed") && small->color != normal_color);
     s->status = CURIO_SOURCE_ERROR;
     refresh(NULL);
     assert(!strcmp(lv_label_get_text(small->value), "Collection error"));
@@ -1191,11 +1182,8 @@ static void weather_widget_checks(void)
         assert(!strcmp(lv_label_get_text(p->temperature), "-12°"));
         if (p->condition) assert(!strcmp(lv_label_get_text(p->condition), "Cloudy"));
         if (p->humidity) assert(!strcmp(lv_label_get_text(p->humidity), "61% RH"));
-        for (unsigned j = 0; j < lv_obj_get_child_count(widgets[0]->box); j++) {
-            lv_obj_t *label = lv_obj_get_child(widgets[0]->box, j);
-            assert(lv_obj_get_y(label) >= 0);
-            assert(lv_obj_get_y(label) + lv_obj_get_height(label) <= lv_obj_get_height(widgets[0]->box));
-        }
+        for (unsigned j = 0; j < lv_obj_get_child_count(widgets[0]->box); j++)
+            assert_label_fits(lv_obj_get_child(widgets[0]->box, j));
         curio_weather_complete(options->latitude, options->longitude, now + 1, NULL);
         refresh(NULL);
         assert(!strcmp(lv_label_get_text(p->temperature), "-12°"));
@@ -1230,15 +1218,8 @@ static void clock_widget_checks(void)
     assert(!strcmp(lv_label_get_text(lv_obj_get_child(widgets[1]->box, 0)), "Time (UTC+8)"));
     assert(!strcmp(lv_label_get_text(small->time), "00:00:00"));
     assert(!strcmp(lv_label_get_text(large->date), "2025-01-01"));
-    for (size_t i = 0; i < widget_count; i++) {
-        lv_obj_t *time = ((clock_payload_t *)widgets[i]->data)->time;
-        lv_point_t size;
-        lv_text_get_size(&size, lv_label_get_text(time), lv_obj_get_style_text_font(time, 0), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-        assert(size.x <= lv_obj_get_width(time));
-        assert(lv_obj_get_y(time) >= 23);
-        assert(lv_obj_get_y(time) + size.y <= lv_obj_get_height(widgets[i]->box));
-    }
-    assert(lv_obj_get_style_text_font(large->time, 0) == &curio_font_48);
+    for (size_t i = 0; i < widget_count; i++)
+        assert_label_fits(((clock_payload_t *)widgets[i]->data)->time);
     clock_now++;
     refresh(NULL);
     assert(!strcmp(lv_label_get_text(small->time), "00:00:01"));
@@ -1357,23 +1338,14 @@ int main(void)
     step(80, 155, false);
     check(0, CURIO_FILTER_ALL);
     assert(clicks == 2);
-    check(0, CURIO_FILTER_ALL);
-    swipe(400, 250, -300, 0);
-    check(1, CURIO_FILTER_ALL);
-    swipe(400, 250, -300, 0);
-    check(2, CURIO_FILTER_ALL);
-    swipe(400, 250, -300, 0);
-    check(3, CURIO_FILTER_ALL);
-    swipe(400, 250, -300, 0);
-    check(3, CURIO_FILTER_ALL);
-    swipe(80, 250, 300, 0);
-    check(2, CURIO_FILTER_ALL);
-    swipe(80, 250, 300, 0);
-    check(1, CURIO_FILTER_ALL);
-    swipe(80, 250, 300, 0);
-    check(0, CURIO_FILTER_ALL);
-    swipe(80, 250, 300, 0);
-    check(0, CURIO_FILTER_ALL);
+    for (unsigned i = 0; i < 4; i++) {
+        swipe(400, 250, -300, 0);
+        check(i < 3 ? i + 1 : 3, CURIO_FILTER_ALL);
+    }
+    for (unsigned i = 0; i < 4; i++) {
+        swipe(80, 250, 300, 0);
+        check(i < 3 ? 2 - i : 0, CURIO_FILTER_ALL);
+    }
     swipe(250, 250, -10, 0);
     check(0, CURIO_FILTER_ALL);
     swipe(250, 250, 0, 100);

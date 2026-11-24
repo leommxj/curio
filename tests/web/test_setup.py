@@ -1,15 +1,10 @@
 """Run with a Python environment containing Playwright and Chromium."""
 import copy
-import functools
-import http.server
 from pathlib import Path
-import threading
 import unittest
 
-from playwright.sync_api import sync_playwright
+from browser import BrowserTest
 
-
-WEB = Path(__file__).resolve().parents[2] / "firmware/main/web"
 FIXTURE = """version: 1
 access:
   admin_token: admin-token-123456789
@@ -27,31 +22,9 @@ CERT = "-----BEGIN CERTIFICATE-----\nexample-certificate\n-----END CERTIFICATE--
 KEY = "-----BEGIN PRIVATE KEY-----\nexample-key\n-----END PRIVATE KEY-----\n"
 
 
-class QuietHandler(http.server.SimpleHTTPRequestHandler):
-    def log_message(self, *_):
-        pass
-
-
-class SetupBrowserTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.server = http.server.ThreadingHTTPServer(
-            ("127.0.0.1", 0), functools.partial(QuietHandler, directory=str(WEB)))
-        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
-        cls.thread.start()
-        cls.playwright = sync_playwright().start()
-        cls.browser = cls.playwright.chromium.launch(headless=True)
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.browser.close()
-        cls.playwright.stop()
-        cls.server.shutdown()
-        cls.server.server_close()
-
+class SetupBrowserTest(BrowserTest):
     def setUp(self):
-        self.context = self.browser.new_context(accept_downloads=True)
-        self.page = self.context.new_page()
+        super().setUp()
         self.page.add_init_script("Object.defineProperty(window, 'structuredClone', {value: undefined})")
         self.source = FIXTURE
         self.revision = 1
@@ -62,13 +35,7 @@ class SetupBrowserTest(unittest.TestCase):
         self.fail_next_save = False
         self.remote_wifi_on_conflict = False
         self.fail_get = False
-        self.errors = []
-        self.page.on("pageerror", lambda error: self.errors.append(str(error)))
         self.page.route("**/api/v2/setup**", self.api)
-
-    def tearDown(self):
-        self.assertEqual(self.errors, [])
-        self.context.close()
 
     def api(self, route):
         request = route.request

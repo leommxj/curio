@@ -10,7 +10,7 @@ SOURCES := test_settings.c $(ROOT)/firmware/components/curio_config/curio_config
            $(ROOT)/firmware/components/curio_layout/curio_layout.c \
            $(ROOT)/firmware/components/curio_alerts/curio_alerts.c $(ROOT)/.deps/cJSON/cJSON.c
 include ../../scripts/lib/modules.mk
-HEADERS := $(ROOT)/firmware/main/curio_settings.c $(ROOT)/firmware/main/curio_settings.h \
+HEADERS := fixture.h $(ROOT)/firmware/main/curio_settings.c $(ROOT)/firmware/main/curio_settings.h \
            $(ROOT)/firmware/main/curio_app.h $(wildcard stubs/*.h stubs/freertos/*.h)
 
 .PHONY: test sanitize

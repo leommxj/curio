@@ -1,50 +1,17 @@
 [
-  {
-    "name": "default",
-    "valid": true,
-    "options": {}
-  },
-  {
-    "name": "fractional zone",
-    "valid": true,
-    "options": {
-      "utc_offset": "+05:45",
-      "seconds": true
-    }
-  },
-  {
-    "name": "minimum zone",
-    "valid": true,
-    "options": {
-      "utc_offset": "-12:00"
-    }
-  },
-  {
-    "name": "maximum zone",
-    "valid": true,
-    "options": {
-      "utc_offset": "+14:00"
-    }
-  },
-  {
-    "name": "zone overflow",
-    "valid": false,
-    "options": {
-      "utc_offset": "+14:01"
-    }
-  },
-  {
-    "name": "seconds type",
-    "valid": false,
-    "options": {
-      "seconds": 1
-    }
-  },
-  {
-    "name": "unrelated field",
-    "valid": false,
-    "options": {
-      "host": "h"
-    }
-  }
+  {"name": "default", "valid": true, "options": {}},
+  {"name": "fractional zone", "valid": true, "options": {"utc_offset": "+05:45", "seconds": true}},
+  {"name": "minimum zone", "valid": true, "options": {"utc_offset": "-12:00"}},
+  {"name": "maximum zone", "valid": true, "options": {"utc_offset": "+14:00"}},
+  {"name": "zone overflow", "valid": false, "options": {"utc_offset": "+14:01"}},
+  {"name": "seconds type", "valid": false, "options": {"seconds": 1}},
+  {"name": "unrelated field", "valid": false, "options": {"host": "h"}},
+  {"name": "negative fractional zone", "valid": true, "options": {"utc_offset": "-03:17"}},
+  {"name": "negative zone overflow", "valid": false, "options": {"utc_offset": "-12:01"}},
+  {"name": "missing zone sign", "valid": false, "options": {"utc_offset": "08:00"}},
+  {"name": "short zone hour", "valid": false, "options": {"utc_offset": "+8:00"}},
+  {"name": "minute overflow", "valid": false, "options": {"utc_offset": "+00:60"}},
+  {"name": "zone type", "valid": false, "options": {"utc_offset": 480}},
+  {"name": "named zone", "valid": false, "options": {"utc_offset": "UTC"}},
+  {"name": "unrelated source", "valid": false, "options": {"source": "time"}}
 ]

@@ -6,7 +6,6 @@
 #include <string.h>
 #include "../../firmware/modules/widgets/agents/config.h"
 #include "../../firmware/modules/widgets/status/config.h"
-#include "../../firmware/modules/widgets/clock/config.h"
 #include "../../firmware/modules/alerts/agent_done/config.h"
 #include "../../firmware/modules/alerts/metric_high/config.h"
 #include "../../firmware/modules/alerts/host_offline/config.h"
@@ -75,19 +74,27 @@ static void test_roundtrip(void)
     curio_config_free(before);
     free(before);
 }
-static void reject(const char *suffix)
+static bool parse_extra(const char *suffix)
 {
     size_t n = strlen(minimal) + strlen(suffix);
     char *yaml = malloc(n + 1);
     assert(yaml);
-    strcpy(yaml, minimal); strcat(yaml, suffix);
-    curio_config_t *before = calloc(1, sizeof(*before));
-    assert(before); assert(curio_config_clone(before, &config));
+    strcpy(yaml, minimal);
+    strcat(yaml, suffix);
     char error[80];
-    assert(!curio_config_parse(yaml, n, &config, error, sizeof(error)) && *error);
+    bool ok = curio_config_parse(yaml, n, &config, error, sizeof(error));
+    assert(ok || *error);
+    free(yaml);
+    return ok;
+}
+static void reject(const char *suffix)
+{
+    curio_config_t *before = calloc(1, sizeof(*before));
+    assert(before && curio_config_clone(before, &config));
+    assert(!parse_extra(suffix));
     assert(curio_config_equal(before, &config));
     curio_config_free(before);
-    free(before); free(yaml);
+    free(before);
 }
 static void test_invalid(void)
 {
@@ -127,12 +134,7 @@ static void test_network_tls(void)
         "    -----BEGIN PRIVATE KEY-----\n"
         "    example-key\n"
         "    -----END PRIVATE KEY-----\n";
-    size_t n = strlen(minimal) + strlen(yaml) + 1;
-    char *input = malloc(n);
-    assert(input);
-    strcpy(input, minimal);
-    strcat(input, yaml);
-    assert(curio_config_parse(input, strlen(input), &config, NULL, 0));
+    assert(parse_extra(yaml));
     assert(config.network.wifi_count == 2 && !strcmp(config.network.wifi[0].ssid, "工作室 WiFi") &&
            !strcmp(config.network.wifi[0].password, "password123") &&
            !strcmp(config.network.wifi[1].ssid, "Guest") && !*config.network.wifi[1].password);
@@ -149,7 +151,6 @@ static void test_network_tls(void)
     cJSON_free(out);
     curio_config_free(before);
     free(before);
-    free(input);
 
     const char *invalid[] = {
         "network: null\n", "network: {ssid: old}\n", "network: {wifi: null}\n",
@@ -172,51 +173,28 @@ static void test_network_tls(void)
     };
     for (size_t i = 0; i < sizeof(invalid) / sizeof(*invalid); i++) reject(invalid[i]);
 
-    char *empty = malloc(strlen(minimal) + 32);
-    assert(empty);
-    strcpy(empty, minimal);
-    strcat(empty, "network: {wifi: []}\n");
-    assert(curio_config_parse(empty, strlen(empty), &config, NULL, 0));
+    assert(parse_extra("network: {wifi: []}\n"));
     assert(config.network.wifi_count == 0);
-    free(empty);
-
-    const char *four = "network: {wifi: [{ssid: one}, {ssid: two}, {ssid: three}, {ssid: four}]}\n";
-    input = malloc(strlen(minimal) + strlen(four) + 1);
-    assert(input);
-    strcpy(input, minimal); strcat(input, four);
-    assert(curio_config_parse(input, strlen(input), &config, NULL, 0));
+    assert(parse_extra("network: {wifi: [{ssid: one}, {ssid: two}, {ssid: three}, {ssid: four}]}\n"));
     assert(config.network.wifi_count == CURIO_WIFI_MAX_NETWORKS);
-    free(input);
 
     char suffix[2300];
     char value[2100];
     memset(value, 'a', sizeof(value));
     value[32] = 0;
     snprintf(suffix, sizeof(suffix), "network: {wifi: [{ssid: '%s'}]}\n", value);
-    n = strlen(minimal) + strlen(suffix) + 1;
-    input = malloc(n); assert(input);
-    strcpy(input, minimal); strcat(input, suffix);
-    assert(curio_config_parse(input, strlen(input), &config, NULL, 0));
-    free(input);
+    assert(parse_extra(suffix));
     value[32] = 'a'; value[33] = 0;
     snprintf(suffix, sizeof(suffix), "network: {wifi: [{ssid: '%s'}]}\n", value);
     reject(suffix);
     memset(value, 'a', sizeof(value));
     value[63] = 0;
     snprintf(suffix, sizeof(suffix), "network: {wifi: [{ssid: radio, password: '%s'}]}\n", value);
-    n = strlen(minimal) + strlen(suffix) + 1;
-    input = malloc(n); assert(input);
-    strcpy(input, minimal); strcat(input, suffix);
-    assert(curio_config_parse(input, strlen(input), &config, NULL, 0));
-    free(input);
+    assert(parse_extra(suffix));
     value[63] = 'a'; value[64] = 0;
     snprintf(suffix, sizeof(suffix), "network: {wifi: [{ssid: radio, password: '%s'}]}\n", value);
-    n = strlen(minimal) + strlen(suffix) + 1;
-    input = malloc(n); assert(input);
-    strcpy(input, minimal); strcat(input, suffix);
-    assert(curio_config_parse(input, strlen(input), &config, NULL, 0));
+    assert(parse_extra(suffix));
     assert(!strcmp(config.network.wifi[0].password, value));
-    free(input);
     value[0] = 'g';
     snprintf(suffix, sizeof(suffix), "network: {wifi: [{ssid: radio, password: '%s'}]}\n", value);
     reject(suffix);
@@ -311,33 +289,20 @@ static void test_allocation_failure(void)
 static void test_clock(void)
 {
     const char *prefix = "access: {admin_token: '1234567890123456', collector_token: abcdefghijklmnop}\nscreen: {pages: [{id: home, widgets: [{type: clock, at: [0, 0], size: [1, 1]";
-    const char *valid[] = {"", ", utc_offset: '+14:00', seconds: true", ", utc_offset: '-12:00'", ", utc_offset: '+05:45'", ", utc_offset: '-03:17'"};
     char yaml[1024];
-    for (size_t i = 0; i < sizeof(valid) / sizeof(*valid); i++) {
-        snprintf(yaml, sizeof(yaml), "%s%s}]}]}\n", prefix, valid[i]);
-        assert(curio_config_parse(yaml, strlen(yaml), &config, NULL, 0));
-        curio_widget_config_t *w = &config.display.pages[0].widgets[0];
-        assert(w->type == curio_widget_type_find("clock"));
-        assert(!*w->title);
-        assert(!strcmp(config.device.ntp_server, "pool.ntp.org"));
-        char *out = curio_config_yaml(&config);
-        assert(out && !strstr(out, "host:") && !strstr(out, "source:") && !strstr(out, "ntp_server:") && !strstr(out, "title:"));
-        if (!i) assert(!strstr(out, "utc_offset:") && !strstr(out, "seconds:"));
-        int offset = ((curio_clock_config_t *)w->options)->utc_offset_minutes;
-        assert(curio_config_parse(out, strlen(out), &config, NULL, 0));
-        assert(((curio_clock_config_t *)config.display.pages[0].widgets[0].options)->utc_offset_minutes == offset);
-        cJSON_free(out);
-    }
+    snprintf(yaml, sizeof(yaml), "%s}]}]}\n", prefix);
+    assert(curio_config_parse(yaml, strlen(yaml), &config, NULL, 0));
+    assert(!*config.display.pages[0].widgets[0].title);
+    assert(!strcmp(config.device.ntp_server, "pool.ntp.org"));
+    char *defaults = curio_config_yaml(&config);
+    assert(defaults && !strstr(defaults, "utc_offset:") && !strstr(defaults, "seconds:") &&
+           !strstr(defaults, "title:") && !strstr(defaults, "ntp_server:"));
+    cJSON_free(defaults);
     strcpy(config.display.pages[0].widgets[0].title, "Office");
     char *custom = curio_config_yaml(&config);
     assert(custom && curio_config_parse(custom, strlen(custom), &config, NULL, 0));
     assert(!strcmp(config.display.pages[0].widgets[0].title, "Office"));
     cJSON_free(custom);
-    const char *invalid[] = {", utc_offset: '+14:01'", ", utc_offset: '-12:01'", ", utc_offset: '08:00'", ", utc_offset: '+8:00'", ", utc_offset: '+00:60'", ", utc_offset: 480", ", seconds: 1", ", host: one", ", source: time"};
-    for (size_t i = 0; i < sizeof(invalid) / sizeof(*invalid); i++) {
-        snprintf(yaml, sizeof(yaml), "%s%s}]}]}\n", prefix, invalid[i]);
-        assert(!curio_config_parse(yaml, strlen(yaml), &config, NULL, 0));
-    }
     snprintf(yaml, sizeof(yaml), "%s}]}]}\ndevice: {ntp_server: time.example.com}\n", prefix);
     assert(curio_config_parse(yaml, strlen(yaml), &config, NULL, 0));
     char *out = curio_config_yaml(&config);
