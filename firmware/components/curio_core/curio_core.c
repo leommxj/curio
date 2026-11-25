@@ -353,8 +353,7 @@ curio_result_t curio_core_parse(const curio_core_t *c, const char *body, size_t 
     *out = NULL;
     if (length > CURIO_MAX_BODY_BYTES)
         return CURIO_TOO_LARGE;
-    if (!body || !length || !curio_utf8_valid((const unsigned char *)body, length) ||
-        !json_preflight(body, length))
+    if (!curio_json_valid(body, length))
         return CURIO_INVALID;
     const char *end = NULL;
     cJSON *root = cJSON_ParseWithLengthOpts(body, length, &end, 0);

@@ -17,7 +17,7 @@
           return true;
         }
         const m = metricEntries()[Number(t.value)];
-        if (t.value !== "" && m) {
+        if (m) {
           const w =
             page().widgets[Number(t.closest("[data-index]").dataset.index)];
           if (sameMetric(w, m) && w.unit === m.unit) return true;
@@ -49,10 +49,13 @@
     editor(w) {
       return `${metricSelect(w)}<details class="manual-fields" ${w.host ? "" : "open"}><summary>手动绑定</summary><div class="fields">${field("机器 ID", "host", w.host)}${field("来源 ID", "source", w.source)}${field("指标键", "key", w.key)}${field("单位", "unit", w.unit)}</div></details>`;
     },
+    refresh(w, editor) {
+      editor.querySelector("[data-metric-select]").parentElement.outerHTML = metricSelect(w);
+    },
     classes(w) {
       return `metric-card ${w.size[0] === 1 ? "narrow" : ""}`;
     },
-    preview(w, { width, height }) {
+    preview(w) {
       return `<div class="metric-main"><span class="metric-title">${esc(w.title)}</span>${metricHTML(w, w.unit)}</div>${w.size[0] === 1 && w.size[1] === 1 ? "" : `<div class="metric-host">${esc(host(w.host)?.host_name || w.host)}</div>`}`;
     },
   };

@@ -16,9 +16,7 @@ function setBusy(busy) {
   document.querySelector("#reset-device").disabled = busy;
 }
 
-function copyWifi(list) {
-  return JSON.parse(JSON.stringify(list));
-}
+const clone = value => JSON.parse(JSON.stringify(value));
 
 function renderWifi() {
   if (!wifiDraft.length) wifiDraft.push({ ssid: "", password: "" });
@@ -33,21 +31,21 @@ function renderWifi() {
 }
 
 function fillFields(value) {
-  sourceWifi = copyWifi(value.network?.wifi ?? []);
-  wifiDraft = copyWifi(sourceWifi);
+  sourceWifi = clone(value.network?.wifi ?? []);
+  wifiDraft = clone(sourceWifi);
   selectedWifi = 0;
   renderWifi();
   document.querySelector("#hostname").value = value.network?.hostname || "curio";
 }
 
 function mergedDraft(remote) {
-  const result = copyWifi(remote);
+  const result = clone(remote);
   for (const [i, wifi] of wifiDraft.entries()) {
     const original = sourceWifi[i];
     if (original && JSON.stringify(wifi) === JSON.stringify(original)) continue;
     const at = original ? result.findIndex(item => item.ssid === original.ssid) : -1;
-    if (at >= 0) result[at] = copyWifi([wifi])[0];
-    else result.push(copyWifi([wifi])[0]);
+    if (at >= 0) result[at] = clone(wifi);
+    else result.push(clone(wifi));
   }
   return result;
 }
@@ -82,17 +80,16 @@ function download(name, content) {
 }
 
 function showSaved(source) {
-  const documentConfig = parseConfig(source);
-  const hostname = documentConfig.network?.hostname || "curio";
-  document.querySelector("#admin-token").textContent = documentConfig.access?.admin_token || "";
-  document.querySelector("#collector-token").textContent = documentConfig.access?.collector_token || "";
+  const hostname = config.network?.hostname || "curio";
+  document.querySelector("#admin-token").textContent = config.access?.admin_token || "";
+  document.querySelector("#collector-token").textContent = config.access?.collector_token || "";
   const link = document.querySelector("#device-link");
   link.href = `https://${hostname}.local`;
   link.textContent = `${hostname}.local`;
   savedYaml = source;
   form.hidden = true;
   savedPanel.hidden = false;
-  document.querySelector("#download-cert").disabled = !documentConfig.tls?.certificate;
+  document.querySelector("#download-cert").disabled = !config.tls?.certificate;
   document.querySelector("#restart").disabled = false;
 }
 
@@ -170,13 +167,13 @@ form.addEventListener("submit", async event => {
   status.classList.remove("danger");
   setBusy(true);
   try {
-    const next = JSON.parse(JSON.stringify(config));
+    const next = clone(config);
     const hostname = document.querySelector("#hostname").value.trim().toLowerCase();
     validateWifi(wifiDraft);
     if ((next.network?.hostname || "curio") !== hostname) delete next.tls;
     next.network = {
       ...next.network,
-      wifi: copyWifi(wifiDraft),
+      wifi: clone(wifiDraft),
       hostname,
     };
     const response = await fetch("/api/v2/setup", {
@@ -208,7 +205,7 @@ form.addEventListener("submit", async event => {
 });
 
 document.querySelector("#download-cert").addEventListener("click", () => {
-  download("server-cert.pem", parseConfig(savedYaml).tls.certificate);
+  download("server-cert.pem", config.tls.certificate);
 });
 document.querySelector("#download-config").addEventListener("click", () => {
   download("curio.yaml", savedYaml);

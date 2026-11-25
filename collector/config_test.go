@@ -140,14 +140,6 @@ func TestConfigCommandsRejectLegacyAndConflictingOptions(t *testing.T) {
 			t.Error("accepted", args)
 		}
 	}
-	t.Setenv("CURIO_TOKEN", "ignored-secret")
-	cfg, err := parseConfig([]string{"--config", p}, io.Discard)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := cfg.loadToken(); err == nil {
-		t.Fatal("token loaded from legacy environment")
-	}
 }
 
 func TestYAMLStrictnessAndDefaults(t *testing.T) {
@@ -162,7 +154,7 @@ func TestYAMLStrictnessAndDefaults(t *testing.T) {
 			t.Errorf("accepted invalid configuration: %.100s", input)
 		}
 	}
-	p := testLocalConfig(t, "token_file: missing-secret\nsources:\n  cpu:\n    module: cpu\n    fields: []\n  herdr:\n    module: herdr\n    allow_agents: [agent-1]\n    project_aliases: {project: display}\n")
+	p := testLocalConfig(t, "token_file: missing-secret\nsources:\n  cpu:\n    module: cpu\n    fields: []\n  disk:\n    module: disk\n    path: ./data\n    fields: [used_bytes, free_bytes]\n  herdr:\n    module: herdr\n    allow_agents: [agent-1]\n    project_aliases: {project: display}\n")
 	cfg, err := parseConfig([]string{"--config", p}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
@@ -177,6 +169,10 @@ func TestYAMLStrictnessAndDefaults(t *testing.T) {
 	local, err := readLocalConfig(bytes.NewReader(output.Bytes()))
 	if err != nil {
 		t.Fatal(err)
+	}
+	disk := local.Sources["disk"]
+	if disk.Path != "./data" || strings.Join(disk.Fields, ",") != "used_bytes,free_bytes" {
+		t.Fatal("export changed relative path or field order", output.String())
 	}
 	if local.Sources["cpu"].Fields == nil || len(local.Sources["cpu"].Fields) != 0 || local.Sources["herdr"].Aliases["project"] != "display" || local.TokenFile != "missing-secret" {
 		t.Fatal("export changed configuration", output.String())

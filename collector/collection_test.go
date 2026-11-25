@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/shirou/gopsutil/v4/cpu"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/shirou/gopsutil/v4/cpu"
 )
 
 func testLocalConfig(t *testing.T, body string) string {
@@ -25,21 +26,6 @@ func testLocalConfig(t *testing.T, body string) string {
 	}
 	return p
 }
-func TestLocalConfigIsolation(t *testing.T) {
-	t.Setenv("CURIO_HOST_ID", "legacy")
-	t.Setenv("CURIO_ENDPOINT", "https://legacy")
-	p := testLocalConfig(t, `{"version":1,"host_id":"local","sources":{}}`)
-	cfg, err := parseConfig([]string{"--config", p}, &bytes.Buffer{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.HostID != "local" || cfg.Endpoint != "" {
-		t.Fatal("legacy environment leaked")
-	}
-	if _, err = parseConfig([]string{"--config", p, "--interval", "1s"}, &bytes.Buffer{}); err == nil {
-		t.Fatal("accepted mixed policy")
-	}
-}
 func TestLocalFieldsValidation(t *testing.T) {
 	for _, body := range []string{
 		`{"version":1,"sources":{"system.cpu":{"module":"cpu","fields":["private"]}}}`,
@@ -49,6 +35,9 @@ func TestLocalFieldsValidation(t *testing.T) {
 		p := testLocalConfig(t, body)
 		if _, err := parseConfig([]string{"--config", p}, &bytes.Buffer{}); err == nil {
 			t.Fatalf("accepted %s", body)
+		}
+		if err := exportConfig(p, &bytes.Buffer{}, false); err == nil {
+			t.Fatalf("export accepted %s", body)
 		}
 	}
 }

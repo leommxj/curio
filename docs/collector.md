@@ -22,9 +22,7 @@ System metrics use gopsutil's implementations for Linux, Windows and macOS. Modu
 | Windows | CLI | Windows service |
 | macOS | Unix socket by default; CLI optional | Manual launchd setup |
 
-`init`, `check`, `export` and `run` are shared commands on Linux, Windows and macOS. Service deployment supports Linux systemd and Windows services; see [Services](#services).
-
-Windows also has a [setup window](#windows-setup).
+`init`, `check`, `export` and `run` are shared commands on all three platforms. Windows also has a [setup window](#windows-setup); see [Services](#services) for deployment.
 
 Adding a built-in module requires changing and rebuilding Collector. A separate reporter can send metrics, status text and agent lists directly to the Hub using the [snapshot protocol](protocol.md#snapshots).
 
@@ -32,7 +30,7 @@ Adding a built-in module requires changing and rebuilding Collector. A separate 
 
 First set up the Hub through its temporary Setup AP page or with `make configure` and `make provision` as described in the [firmware guide](firmware.md#first-setup). Copy `access.collector_token` from the downloaded `curio.yaml` into a private token file for the Collector. Computer setup writes `firmware/local/token.txt` directly. Set the endpoint to the Hub's HTTPS address, for example `https://curio.local`.
 
-Collector uses HTTPS without checking the server certificate by default; no certificate file is needed. To enable certificate verification, set `verify_tls: true` or pass `--verify-tls`. This checks the certificate chain, endpoint hostname or IP, and validity dates against system trust. For the Hub's self-signed certificate, download `server-cert.pem` from the normal Web Device tab or the Setup AP page and set `ca` to that file. Setting `ca` also enables verification, even when `verify_tls` is false. Computer setup writes `firmware/local/server-cert.pem`. If the Hub hostname changes, update the endpoint and download its new certificate when using verification.
+Collector uses HTTPS without checking the server certificate by default; no certificate file is needed. Set `verify_tls: true` or pass `--verify-tls` to check the certificate chain, endpoint hostname or IP, and validity dates against system trust. For the Hub's self-signed certificate, download it from the Web Device tab or Setup AP page and set `ca` to that file. Setting `ca` also enables verification. Computer setup writes `firmware/local/server-cert.pem`. If the Hub hostname changes, update the endpoint and download its new certificate when using verification.
 
 ```sh
 ./build/curio-collector init

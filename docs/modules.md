@@ -44,7 +44,7 @@ A widget with `device.c` exports `curio_widget_<name>_service`. Its `configure` 
 
 Declare `state_size` and `evaluate`. The engine allocates a zeroed state block only for enabled rules and frees it when rules change. The block contains plain values and fixed arrays, with per-host state indexed by the supplied core's host slots. Reset a slot when its host ID changes or becomes unoccupied.
 
-`evaluate` receives the data model and monotonic time. Use its `emit` callback for a notification with level, title, body and detail, plus a key unique within the rule (up to 148 bytes). Repeated rule/key pairs are deduplicated. `cancel` removes matching pending notifications while preserving the visible one.
+`evaluate` receives the data model, monotonic time and Wi-Fi connection state. Use its `emit` callback with a `curio_alert_notification_t` and a key unique within the rule (up to 148 bytes). Set `kind` to `CURIO_ALERT_INFO` or `CURIO_ALERT_WARNING`; title, body and detail hold up to 32, 96 and 128 UTF-8 bytes respectively. Repeated rule/key pairs are deduplicated. `cancel` removes matching pending notifications while preserving the visible one.
 
 The engine owns priority, queue capacity, timeout and dismissal. It applies configured sound, vibration and flash settings. Changing rules resets detection and the queue; changing global output levels preserves them.
 
@@ -52,7 +52,7 @@ The engine owns priority, queue capacity, timeout and dismissal. It applies conf
 
 Each `web.js` registers a descriptor in `widgetTypes` or `alertTypes`. `types` maps YAML field names to `string`, `number`, `boolean` or `array`; it also supplies the allowed field list. Declare `label`, `defaults`, `validate` and `editor`. Widgets add `minimum`, `classes` and `preview`; alerts add `summary`. Optional `initial` values suggest inputs for new entries, without filling required fields during import.
 
-Common code manages IDs, geometry, YAML drafts, saves and ETags. Modules can handle specialized input with `change` and `click`, manage preview state with `tick`, `clear`, `invalidate` and `reset`, and add source details with `catalog`. Shared helpers are available when callbacks run.
+Common code manages IDs, geometry, YAML drafts, saves and ETags. Modules can handle specialized input with `change` and `click`, update editor choices after polling with `refresh(widget, editor)`, manage preview state with `tick`, `clear`, `invalidate` and `reset`, and add source details with `catalog`. Shared helpers are available when callbacks run.
 
 ## Build and tests
 

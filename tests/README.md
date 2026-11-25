@@ -1,6 +1,6 @@
 # Host tests
 
-Run commands from the repository root. `make test` runs Go, C, deployment/workflow and integration tests; `make test-ui` and `make test-web` run suites with extra dependencies. C tests need a C compiler; most also need cJSON, and configuration tests need libyaml. Web tests need Playwright and Chromium; integration tests also need Python 3 and Go. Set `GO` to select a Go executable and `PYTHON` to select a Python environment. For example, `make test-web PYTHON=/path/to/venv/bin/python`.
+Run commands from the repository root. `make test` runs Go tests with the race detector, `go vet`, C, deployment/workflow and integration tests; `make test-ui` and `make test-web` run suites with extra dependencies. C tests need a C compiler; most also need cJSON, and configuration tests need libyaml. Web tests need Playwright and Chromium; integration tests also need Python 3 and Go. Set `GO` to select a Go executable and `PYTHON` to select a Python environment. For example, `make test-web PYTHON=/path/to/venv/bin/python`.
 
 ```sh
 make deps-host

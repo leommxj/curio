@@ -277,6 +277,8 @@ class ConfigBrowserTest(BrowserTest):
         self.page.locator(".catalog-agent strong", has_text="Build").wait_for()
         self.tab("screen")
         self.page.locator("#widget-select").select_option("metric-2")
+        self.page.evaluate("poll()")
+        self.assertEqual(self.page.evaluate("pollError"), "")
         metric = self.page.locator('.widget[data-index="1"]')
         metric.locator("[data-metric-select]").select_option("0")
         self.assertEqual(self.page.locator(".metric-value").inner_text(), "42%")
@@ -417,12 +419,12 @@ class ConfigBrowserTest(BrowserTest):
     def test_module_scalar_schemas_and_hostless_alert_are_independent(self):
         self.page.evaluate("""() => {
             widgetTypes.typed = {
-                label: "Typed", minimum: [1, 1], fields: ["source"], types: {source: "number"},
+                label: "Typed", minimum: [1, 1], types: {source: "number"},
                 defaults: () => ({title: "Typed"}), validate() {}, editor: () => "",
                 classes: () => "typed-card", preview: w => String(w.source),
             };
             alertTypes.hostless = {
-                label: "Hostless", fields: ["source"], types: {source: "boolean"},
+                label: "Hostless", types: {source: "boolean"},
                 defaults: () => ({}), validate() {}, editor: () => "", summary: r => String(r.source),
             };
         }""")
@@ -453,7 +455,7 @@ class ConfigBrowserTest(BrowserTest):
         self.load_widgets([])
         self.page.evaluate("""() => {
             widgetTypes.note = {
-                label: "Note", minimum: [1, 1], fields: ["text"], types: {text: "string"},
+                label: "Note", minimum: [1, 1], types: {text: "string"},
                 defaults: () => ({title: "Note", text: "hello"}),
                 validate(w, check) {check(w.text, "Text", 48);},
                 editor(w) {return field("Text", "text", w.text);},
@@ -692,6 +694,8 @@ class ConfigBrowserTest(BrowserTest):
         self.load_widgets([], state)
         self.page.locator("#new-type").select_option("status")
         self.page.locator("#add-widget").click()
+        self.page.evaluate("poll()")
+        self.assertEqual(self.page.evaluate("pollError"), "")
         self.page.locator("[data-status-select]").select_option("0")
         self.assertEqual(self.page.locator(".card .metric-status").inner_text(), "Online")
         self.page.locator('[data-field="rect.height"]').select_option("2")

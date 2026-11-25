@@ -57,6 +57,9 @@
     editor(w) {
       return `${statusSelect(w)}<details class="manual-fields" open><summary>手动绑定</summary><div class="fields">${field("机器 ID", "host", w.host)}${field("来源 ID", "source", w.source)}</div></details>`;
     },
+    refresh(w, editor) {
+      editor.querySelector("[data-status-select]").parentElement.outerHTML = statusSelect(w);
+    },
     catalog(s) {
       return s.kind === "status" && s.state
         ? `<p class="code status-${esc(s.state.level)}">${esc(s.state.text)}${s.state.detail ? ` · ${esc(s.state.detail)}` : ""}</p>`
@@ -65,7 +68,7 @@
     classes(w) {
       return `status-card metric-card ${w.size[1] === 1 ? "short-row" : ""} ${w.size[0] === 1 ? "narrow" : ""}`;
     },
-    preview(w, { width, height }) {
+    preview(w) {
       const result = resolveStatus(w);
       return `<div class="metric-main"><span class="metric-title">${esc(w.title)}</span><span class="metric-status status-${esc(result.level || "unknown")}">${esc(result.text)}</span></div>${(w.size[1] > 1 || w.size[0] > 1) && result.detail ? `<div class="status-detail">${esc(result.detail)}</div>` : ""}`;
     },

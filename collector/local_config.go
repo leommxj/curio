@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"time"
 
@@ -88,6 +88,11 @@ func loadLocalConfig(cfg config) (config, error) {
 	if err != nil {
 		return cfg, err
 	}
+	return applyLocalConfig(cfg, local)
+}
+
+func applyLocalConfig(cfg config, local localConfig) (config, error) {
+	var err error
 	if len(local.Sources) > 8 {
 		return cfg, errors.New("sources exceed capacity 8")
 	}
@@ -188,7 +193,6 @@ func loadLocalConfig(cfg config) (config, error) {
 					s.Fields = append(s.Fields, key)
 				}
 			}
-			sort.Strings(s.Fields)
 			seen := map[string]bool{}
 			for _, key := range s.Fields {
 				if moduleFields[s.Module][key] == "" || seen[key] {
@@ -240,7 +244,13 @@ func exportConfig(path string, output io.Writer, verifyTLS bool) error {
 	if err != nil {
 		return err
 	}
-	local.VerifyTLS = local.VerifyTLS || verifyTLS
+	validated := local
+	validated.Sources = maps.Clone(local.Sources)
+	cfg, err := applyLocalConfig(config{ConfigFile: path, VerifyTLS: verifyTLS}, validated)
+	if err != nil {
+		return err
+	}
+	local.VerifyTLS = cfg.VerifyTLS
 	local.Version = 0
 	if local.IdentityFile == "host-id" {
 		local.IdentityFile = ""
@@ -252,27 +262,12 @@ func exportConfig(path string, output io.Writer, verifyTLS bool) error {
 		local.Timeout = ""
 	}
 	for id, source := range local.Sources {
+		normalized := cfg.Local.Sources[id]
 		if fields := moduleFields[source.Module]; fields != nil && len(source.Fields) == len(fields) {
-			all := true
-			seen := map[string]bool{}
-			for _, field := range source.Fields {
-				if fields[field] == "" || seen[field] {
-					all = false
-				}
-				seen[field] = true
-			}
-			if all {
-				source.Fields = nil
-			}
+			source.Fields = nil
 		}
-		interval, err := duration(source.Interval, 2*time.Second)
-		if err != nil {
-			return err
-		}
-		if fallback := defaultMaxAge(interval); fallback <= 7*24*time.Hour {
-			if age, err := duration(source.MaxAge, fallback); err == nil && age == fallback {
-				source.MaxAge = ""
-			}
+		if normalized.maxAge == defaultMaxAge(normalized.interval) {
+			source.MaxAge = ""
 		}
 		if source.Interval == "2s" {
 			source.Interval = ""

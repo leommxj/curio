@@ -71,12 +71,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			fmt.Fprintln(stdout, cfg.ConfigFile)
 			return nil
 		}
+		if command == "export" {
+			return exportConfig(cfg.ConfigFile, stdout, cfg.VerifyTLS)
+		}
 		cfg, err = loadLocalConfig(cfg)
 		if err != nil {
 			return err
-		}
-		if command == "export" {
-			return exportConfig(cfg.ConfigFile, stdout, cfg.VerifyTLS)
 		}
 		if err := checkConfig(cfg); err != nil {
 			return err

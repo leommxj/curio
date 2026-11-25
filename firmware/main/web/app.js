@@ -613,7 +613,7 @@ async function configRequest(method = "GET", path = "config", body) {
 async function saveConfig() {
   syncFormYaml();
   applyRawDraft();
-  if (new TextEncoder().encode(yamlText).length > 16384)
+  if (bytes(yamlText) > 16384)
     throw Error("配置超过 16 KiB");
   await configRequest("PUT", "config", yamlText);
   status("已保存");
@@ -625,6 +625,14 @@ async function reloadConfig() {
   resetAutoPage();
   status("");
   render();
+}
+function download(name, content, type) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 function renderConfig() {
   $("#editor").innerHTML =
@@ -721,21 +729,9 @@ async function poll() {
     updateStatus();
     renderPreview();
     renderOptions();
-    document.querySelectorAll("[data-metric-select]").forEach((select) => {
-      const w =
-        page().widgets[Number(select.closest("[data-index]").dataset.index)];
-      select.outerHTML = metricSelect(w).replace(
-        /^<label>数据|<\/label>$/g,
-        "",
-      );
-    });
-    document.querySelectorAll("[data-status-select]").forEach((select) => {
-      const w =
-        page().widgets[Number(select.closest("[data-index]").dataset.index)];
-      select.outerHTML = statusSelect(w).replace(
-        /^<label>数据|<\/label>$/g,
-        "",
-      );
+    document.querySelectorAll("#editor [data-index]").forEach((editor) => {
+      const w = page().widgets[Number(editor.dataset.index)];
+      widgetTypes[w.type].refresh?.(w, editor);
     });
     if (tab === "data") renderEditor();
   } catch (e) {
@@ -781,18 +777,17 @@ function renderOptions() {
     .join("");
 }
 function metricEntries() {
-  const records = new Map();
+  const records = [];
   for (const h of hosts())
     for (const [source_id, source] of entries(h.sources))
       for (const [key, metric] of entries(source.metrics)) {
-        const fields = { host: h.host_id, source: source_id, key };
-        records.set(JSON.stringify(fields), {
-          ...fields,
+        records.push({
+          host: h.host_id, source: source_id, key,
           unit: metric.unit,
           label: `${h.host_name || h.host_id} · ${h.host_id} / ${source_id} / ${key}`,
         });
       }
-  return [...records.values()];
+  return records;
 }
 function widgetOptions(p) {
   return Object.entries(widgetTypes)
@@ -1220,8 +1215,6 @@ document.addEventListener("click", async (e) => {
       markDirty("alerts");
       status("");
       renderEditor();
-    } else if (t.id === "save-alerts") {
-      await saveConfig();
     } else if (t.id === "add-wifi") {
       if (network.wifi.length >= 4) return;
       network.wifi.push({ ssid: "", password: "" });
@@ -1242,8 +1235,6 @@ document.addEventListener("click", async (e) => {
       markDirty("device");
       status("");
       renderEditor();
-    } else if (t.id === "reload-alerts") {
-      await reloadConfig();
     } else if (t.id === "add-widget") addWidget();
     else if (t.hasAttribute("data-remove")) {
       rememberLayout();
@@ -1277,11 +1268,9 @@ document.addEventListener("click", async (e) => {
       display.default_page = page().id;
       renderEditor();
       markDisplayDirty();
-    } else if (t.id === "save") {
+    } else if (["save", "save-device", "save-config", "save-alerts"].includes(t.id)) {
       await saveConfig();
-    } else if (t.id === "save-device" || t.id === "save-config") {
-      await saveConfig();
-    } else if (t.id === "reload" || t.id === "reload-config") {
+    } else if (["reload", "reload-config", "reload-alerts"].includes(t.id)) {
       await reloadConfig();
     } else if (t.id === "restart-device") {
       if (dirty()) throw Error("请先保存或重新加载配置");
@@ -1299,24 +1288,10 @@ document.addEventListener("click", async (e) => {
     } else if (t.id === "download-certificate") {
       const certificate = configDocument.tls?.certificate;
       if (!certificate) return;
-      const url = URL.createObjectURL(
-        new Blob([certificate], { type: "application/x-pem-file" }),
-      );
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${network.hostname}.crt`;
-      link.click();
-      URL.revokeObjectURL(url);
+      download(`${network.hostname}.crt`, certificate, "application/x-pem-file");
     } else if (t.id === "export-yaml") {
       syncFormYaml();
-      const url = URL.createObjectURL(
-        new Blob([yamlText], { type: "application/yaml" }),
-      );
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "curio.yaml";
-      link.click();
-      URL.revokeObjectURL(url);
+      download("curio.yaml", yamlText, "application/yaml");
     } else if (t.id === "copy-collector-token") {
       const value = configDocument.access.collector_token;
       if (navigator.clipboard) await navigator.clipboard.writeText(value);
