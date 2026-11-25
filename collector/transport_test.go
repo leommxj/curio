@@ -60,14 +60,35 @@ func TestHTTPSAuthenticationAndKeepAlive(t *testing.T) {
 	if requests != 2 {
 		t.Fatal("missing requests")
 	}
-	cfg.CA = ""
-	untrusted, err := newPoster(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer untrusted.close()
-	if err := untrusted.post(context.Background(), []byte(`{"v":2}`)); err == nil {
-		t.Fatal("accepted untrusted certificate")
+	for _, test := range []struct {
+		name                             string
+		verify, ca, wrongName, wantError bool
+	}{
+		{name: "default"},
+		{name: "strict untrusted", verify: true, wantError: true},
+		{name: "strict trusted", verify: true, ca: true},
+		{name: "CA enables verification", ca: true},
+		{name: "CA rejects hostname mismatch", ca: true, wrongName: true, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			remote = ""
+			cfg.VerifyTLS = test.verify
+			cfg.CA = ""
+			if test.ca {
+				cfg.CA = serverCA(t, server)
+			}
+			p, err := newPoster(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer p.close()
+			if test.wrongName {
+				p.client.Transport.(*http.Transport).TLSClientConfig.ServerName = "wrong.example"
+			}
+			if err := p.post(context.Background(), []byte(`{"v":2}`)); (err != nil) != test.wantError {
+				t.Fatalf("post error = %v, want error %v", err, test.wantError)
+			}
+		})
 	}
 }
 

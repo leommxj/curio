@@ -61,7 +61,11 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 		if command == "init" {
-			if err := createFile(cfg.ConfigFile, exampleConfig); err != nil {
+			data := exampleConfig
+			if cfg.VerifyTLS {
+				data = append([]byte("verify_tls: true\n"), data...)
+			}
+			if err := createFile(cfg.ConfigFile, data); err != nil {
 				return err
 			}
 			fmt.Fprintln(stdout, cfg.ConfigFile)
@@ -72,7 +76,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 		if command == "export" {
-			return exportConfig(cfg.ConfigFile, stdout)
+			return exportConfig(cfg.ConfigFile, stdout, cfg.VerifyTLS)
 		}
 		if err := checkConfig(cfg); err != nil {
 			return err

@@ -6,7 +6,7 @@ Snapshots carry numeric metrics (`kind: metrics`), a status (`kind: status`), or
 
 ## Transport and authentication
 
-Use HTTPS on port 443 and `Authorization: Bearer <token>`. JSON and YAML use UTF-8. The certificate SAN must cover the connection hostname or IP. Collectors trust the configured `ca` and verify certificates.
+Use HTTPS on port 443 and `Authorization: Bearer <token>`. JSON and YAML use UTF-8. Collector skips certificate verification by default; `verify_tls: true`, `--verify-tls` or a configured `ca` enables it. Verification requires a trusted certificate whose SAN covers the connection hostname or IP.
 
 | Credential | Access |
 | --- | --- |
@@ -106,6 +106,11 @@ network:
   wifi:
     - ssid: Office Wi-Fi
       password: example-password
+      ipv4:
+        address: 192.168.1.50
+        netmask: 255.255.255.0
+        gateway: 192.168.1.1
+        dns: 192.168.1.1
     - ssid: Guest Wi-Fi
 screen:
   pages:
@@ -119,6 +124,8 @@ screen:
 `access` and `screen.pages` are required. `version` defaults to 1 and only accepts 1. `device`, `alerts`, `network` and `tls` are optional. Tokens contain 16–128 printable ASCII bytes without whitespace. Importing a document updates its credentials, Wi-Fi and TLS settings. `network.wifi` is an ordered list of up to four networks. Each entry needs a unique SSID of 1–32 UTF-8 bytes; its password may be empty, 8–63 UTF-8 bytes, or a 64-digit hexadecimal WPA PSK. Omit `wifi` or use `wifi: []` for an unconfigured device. The device tries networks in list order. `network.hostname` defaults to `curio` and is one DNS label of at most 32 ASCII letters, digits and interior hyphens. `tls.certificate` and `tls.private_key` are PEM strings supplied together. When Wi-Fi is configured and TLS is absent, the device generates a certificate and key. Changing the hostname through the Device tab removes the old TLS pair so the device generates one for the new name. Network and certificate changes take effect after restart.
 
 Import replaces the complete configuration; omitted optional fields return to their defaults. Export the current YAML before editing a configured device. The example above omits TLS so the device generates it; later exports include both PEM fields. On first initialization, Curio tries Vibe Mode's shared Wi-Fi settings as described in [first setup](firmware.md#first-setup).
+
+Each Wi-Fi entry uses DHCP unless it has an `ipv4` mapping with all four fields shown above. Values must be dotted decimal IPv4 strings; `netmask` must be contiguous (`/1`–`/30`). Address and gateway must be distinct usable host addresses in the same subnet. DNS may be outside that subnet. Switching networks applies that network's address and DNS settings. New device-generated certificates include all configured static IPs; changing IPv4 alone preserves existing TLS credentials.
 
 The same complete YAML is used by the setup API while the temporary AP is open:
 

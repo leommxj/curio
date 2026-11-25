@@ -104,7 +104,7 @@ func TestDiskConfigAndNetworkDryRun(t *testing.T) {
 func TestExportDefaultMaxAge(t *testing.T) {
 	p := testLocalConfig(t, "sources:\n  nic:\n    module: network\n    interface: eth0\n    interval: 4s\n    max_age: 12s\n    fields: [rx_bytes_per_second, tx_bytes_per_second]\n")
 	var output bytes.Buffer
-	if err := exportConfig(p, &output); err != nil {
+	if err := exportConfig(p, &output, false); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(output.String(), "max_age") || strings.Contains(output.String(), "fields") {
@@ -124,7 +124,7 @@ func TestDefaultMaxAgeRoundsUp(t *testing.T) {
 	}
 	explicit := testLocalConfig(t, "sources:\n  cpu:\n    module: cpu\n    interval: 4.0001s\n    max_age: 12001ms\n")
 	var output bytes.Buffer
-	if err := exportConfig(explicit, &output); err != nil {
+	if err := exportConfig(explicit, &output, false); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(output.String(), "max_age") {

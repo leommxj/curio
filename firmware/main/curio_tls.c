@@ -1,4 +1,5 @@
 #include "curio_tls.h"
+#include "esp_netif.h"
 #include "mbedtls/pk.h"
 #include "mbedtls/x509_crt.h"
 #include "psa/crypto.h"
@@ -36,6 +37,16 @@ static int generate(curio_config_t *config)
         .san.unstructured_name = {.p = (unsigned char *)config->network.hostname, .len = strlen(config->network.hostname)}}};
     mbedtls_x509_san_list local_name = {.node = {.type = MBEDTLS_X509_SAN_DNS_NAME,
         .san.unstructured_name = {.p = (unsigned char *)dns, .len = strlen(dns)}}, .next = &short_name};
+    uint32_t addresses[CURIO_WIFI_MAX_NETWORKS];
+    mbedtls_x509_san_list ip_names[CURIO_WIFI_MAX_NETWORKS];
+    for (size_t i = 0; i < config->network.wifi_count; i++) {
+        const char *address = config->network.wifi[i].ipv4.address;
+        if (!*address) continue;
+        addresses[i] = esp_ip4addr_aton(address);
+        ip_names[i] = (mbedtls_x509_san_list){.node = {.type = MBEDTLS_X509_SAN_IP_ADDRESS,
+            .san.unstructured_name = {.p = (unsigned char *)&addresses[i], .len = 4}}, .next = short_name.next};
+        short_name.next = &ip_names[i];
+    }
     if (!result) result = mbedtls_x509write_crt_set_serial_raw(&cert, serial, sizeof(serial));
     if (!result) result = mbedtls_x509write_crt_set_subject_name(&cert, name);
     if (!result) result = mbedtls_x509write_crt_set_issuer_name(&cert, name);

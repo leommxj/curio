@@ -34,7 +34,7 @@ On first initialization, the device tries `wifi_ssid` and `wifi_password` from V
 | `admin-token.txt` | Web administration token |
 | `server-key.pem` | TLS private key |
 
-The computer-generated certificate is valid for 3650 days. When setup is performed on the device without TLS fields, the device generates a certificate valid from 2024 through 2049. Save the downloaded certificate for browsers and Collectors. Full YAML exports contain the Wi-Fi password, both tokens, certificate and private key in plain text. Network, hostname and certificate changes are stored in YAML and take effect after a restart.
+The computer-generated certificate is valid for 3650 days. Without TLS fields, the device generates a certificate valid from 2024 through 2049, covering the hostname, `hostname.local` and configured static IPv4 addresses. Download it for browser trust or optional Collector verification. Full YAML exports contain the Wi-Fi password, both tokens, certificate and private key in plain text. Network, hostname and certificate changes take effect after a restart.
 
 ## Install and update
 
@@ -62,7 +62,9 @@ Recovery replaces the bootloader, partition table and some factory applications.
 
 ## Connection and troubleshooting
 
-The default mDNS name is `curio.local`. If mDNS is unavailable, use the short hostname through local DNS or an IP address included in the certificate SAN. Configure certificate trust separately for Collectors and browsers. The web **Device** tab can add, remove and reorder up to four Wi-Fi networks, change the hostname and download the certificate. Save and restart to apply network changes. Changing the hostname generates a new certificate; custom TLS values can be imported through the full YAML editor.
+The default mDNS name is `curio.local`. If mDNS is unavailable, use local DNS or the device IP. The normal web **Device** tab can add, remove and reorder up to four Wi-Fi networks, change the hostname and download the certificate. Both this tab and the Setup AP page offer DHCP (default) or static IPv4 per network. Static mode requires an address, subnet mask, gateway and DNS server; see the [YAML fields](protocol.md#yaml-configuration-api). Use an unused address outside the router's DHCP pool. Save and restart to apply network changes.
+
+Collector skips certificate verification by default. When verification is enabled, the certificate must cover the endpoint hostname or IP. Changing IPv4 settings preserves the existing certificate; changing the hostname in the web form generates a new one. To include a new static IP in a generated certificate, remove the `tls` section in the full YAML editor and save, then download the new certificate and restart. Custom TLS values can also be imported there.
 
 At startup, Curio tries networks in list order, allowing up to fifteen seconds per attempt and two seconds between attempts. After losing a connection it retries that network, then continues through the list. It stays on a working network and keeps retrying if all networks fail.
 

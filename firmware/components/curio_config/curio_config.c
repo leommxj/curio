@@ -133,6 +133,38 @@ static bool ntp_server_valid(const char *server)
     return true;
 }
 
+static bool ipv4_parse(const char *s, uint32_t *out, bool host)
+{
+    if (strnlen(s, 16) == 16) return false;
+    uint32_t value = 0;
+    for (unsigned i = 0; i < 4; i++) {
+        unsigned octet = 0;
+        const char *start = s;
+        while (*s >= '0' && *s <= '9') {
+            octet = octet * 10 + (unsigned)(*s++ - '0');
+            if (octet > 255) return false;
+        }
+        if (s == start || (s - start > 1 && *start == '0') || (i == 3 ? *s != 0 : *s != '.')) return false;
+        if (!i && host && (!octet || octet > 223 || octet == 127)) return false;
+        value = (value << 8) | octet;
+        if (i < 3) s++;
+    }
+    *out = value;
+    return true;
+}
+
+static bool ipv4_config_valid(const curio_wifi_ipv4_t *v)
+{
+    if (!v->address[0]) return !v->netmask[0] && !v->gateway[0] && !v->dns[0];
+    uint32_t ip, mask, gw, dns;
+    if (!ipv4_parse(v->address, &ip, true) || !ipv4_parse(v->gateway, &gw, true) ||
+        !ipv4_parse(v->dns, &dns, true) || !ipv4_parse(v->netmask, &mask, false)) return false;
+    if (!mask || (mask | (mask - 1)) != 0xffffffffu || mask >= 0xfffffffeu) return false;
+    if (ip == gw || (ip & mask) != (gw & mask) || !(ip & ~mask) || (ip & ~mask) == ~mask ||
+        !(gw & ~mask) || (gw & ~mask) == ~mask) return false;
+    return true;
+}
+
 static bool network_config_valid(const curio_network_config_t *network)
 {
     if (!network || network->wifi_count > CURIO_WIFI_MAX_NETWORKS) return false;
@@ -156,6 +188,7 @@ static bool network_config_valid(const curio_network_config_t *network)
                       (c >= 'A' && c <= 'F'))) return false;
             }
         }
+        if (!ipv4_config_valid(&wifi->ipv4)) return false;
         for (size_t j = 0; j < i; j++)
             if (!strcmp(wifi->ssid, network->wifi[j].ssid)) return false;
     }
@@ -271,9 +304,17 @@ bool curio_config_parse(const char *yaml, size_t size, curio_config_t *config, c
     for (size_t i = 0; i < next->network.wifi_count; i++) {
         const cJSON *entry = cJSON_GetArrayItem(wifi, (int)i);
         curio_wifi_config_t *out = &next->network.wifi[i];
-        if (!fields(entry, "ssid|password") ||
+        if (!fields(entry, "ssid|password|ipv4") ||
             !curio_string(entry, "ssid", out->ssid, sizeof(out->ssid), NULL) ||
             !curio_string(entry, "password", out->password, sizeof(out->password), "")) goto done;
+        const cJSON *ip = field(entry, "ipv4");
+        if (ip) {
+            if (!fields(ip, "address|netmask|gateway|dns") ||
+                !curio_string(ip, "address", out->ipv4.address, sizeof(out->ipv4.address), NULL) || !out->ipv4.address[0] ||
+                !curio_string(ip, "netmask", out->ipv4.netmask, sizeof(out->ipv4.netmask), NULL) ||
+                !curio_string(ip, "gateway", out->ipv4.gateway, sizeof(out->ipv4.gateway), NULL) ||
+                !curio_string(ip, "dns", out->ipv4.dns, sizeof(out->ipv4.dns), NULL)) goto done;
+        }
     }
     if (!network_config_valid(&next->network)) goto done;
     reason = "invalid TLS fields";
@@ -336,6 +377,13 @@ static cJSON *config_tree(const curio_config_t *c)
                 if (!curio_put_string(entry, "ssid", c->network.wifi[i].ssid) ||
                     (*c->network.wifi[i].password &&
                      !curio_put_string(entry, "password", c->network.wifi[i].password))) goto fail;
+                if (c->network.wifi[i].ipv4.address[0]) {
+                    cJSON *ip = object(entry, "ipv4");
+                    const curio_wifi_ipv4_t *v = &c->network.wifi[i].ipv4;
+                    if (!ip || !curio_put_string(ip, "address", v->address) ||
+                        !curio_put_string(ip, "netmask", v->netmask) || !curio_put_string(ip, "gateway", v->gateway) ||
+                        !curio_put_string(ip, "dns", v->dns)) goto fail;
+                }
             }
         }
     }

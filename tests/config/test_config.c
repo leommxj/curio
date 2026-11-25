@@ -220,6 +220,35 @@ static void test_network_tls(void)
     snprintf(suffix, sizeof(suffix), "tls: {certificate: '%s', private_key: key}\n", value);
     reject(suffix);
 }
+static void test_static_ipv4(void)
+{
+    const char *valid = "network: {wifi: [{ssid: Static, ipv4: {address: 192.168.1.50, netmask: 255.255.255.0, gateway: 192.168.1.1, dns: 1.1.1.1}}, {ssid: DHCP}]}\n";
+    assert(parse_extra(valid));
+    assert(!strcmp(config.network.wifi[0].ipv4.address, "192.168.1.50") && !config.network.wifi[1].ipv4.address[0]);
+    char *yaml = curio_config_yaml(&config);
+    assert(yaml && strstr(yaml, "ipv4:") && curio_config_parse(yaml, strlen(yaml), &config, NULL, 0));
+    assert(!strcmp(config.network.wifi[0].ipv4.dns, "1.1.1.1"));
+    cJSON_free(yaml);
+    const char *invalid[] = {
+        "null", "{}", "{address: '', netmask: '', gateway: '', dns: ''}",
+        "{address: 192.168.1.50, netmask: 255.255.255.0, gateway: 192.168.1.1}",
+        "{address: 192.168.01.50, netmask: 255.255.255.0, gateway: 192.168.1.1, dns: 1.1.1.1}",
+        "{address: 192.168.1.256, netmask: 255.255.255.0, gateway: 192.168.1.1, dns: 1.1.1.1}",
+        "{address: 192.168.1.0, netmask: 255.255.255.0, gateway: 192.168.1.1, dns: 1.1.1.1}",
+        "{address: 192.168.1.255, netmask: 255.255.255.0, gateway: 192.168.1.1, dns: 1.1.1.1}",
+        "{address: 192.168.1.50, netmask: 255.0.255.0, gateway: 192.168.1.1, dns: 1.1.1.1}",
+        "{address: 192.168.1.50, netmask: 255.255.255.254, gateway: 192.168.1.51, dns: 1.1.1.1}",
+        "{address: 192.168.1.50, netmask: 255.255.255.0, gateway: 192.168.2.1, dns: 1.1.1.1}",
+        "{address: 192.168.1.50, netmask: 255.255.255.0, gateway: 192.168.1.50, dns: 1.1.1.1}",
+        "{address: 192.168.1.50, netmask: 255.255.255.0, gateway: 192.168.1.1, dns: 127.0.0.1}",
+        "{address: 224.0.0.50, netmask: 255.255.255.0, gateway: 224.0.0.1, dns: 1.1.1.1}"
+    };
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(*invalid); i++) {
+        char extra[400];
+        snprintf(extra, sizeof(extra), "network: {wifi: [{ssid: Static, ipv4: %s}]}\n", invalid[i]);
+        reject(extra);
+    }
+}
 static void test_grid_fields(void)
 {
     const char *invalid_widgets[] = {
@@ -338,7 +367,7 @@ static void test_clock(void)
 
 int main(void)
 {
-    test_clock(); test_defaults(); test_roundtrip(); test_invalid(); test_network_tls(); test_grid_fields(); test_allocation_failure();
+    test_clock(); test_defaults(); test_roundtrip(); test_invalid(); test_network_tls(); test_static_ipv4(); test_grid_fields(); test_allocation_failure();
     curio_config_free(&config);
     puts("config tests passed");
 }

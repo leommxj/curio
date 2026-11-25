@@ -30,11 +30,13 @@ Adding a built-in module requires changing and rebuilding Collector. A separate 
 
 ## Configuration and commands
 
-First set up the Hub through its temporary Wi-Fi page or with `make configure` and `make provision` as described in the [firmware guide](firmware.md#first-setup). The Wi-Fi page downloads `server-cert.pem` and `curio.yaml`; copy `access.collector_token` from the YAML into a private token file for the Collector. Computer setup writes `firmware/local/server-cert.pem` and `firmware/local/token.txt` directly. Use the configured hostname in the Collector endpoint, for example `https://curio.local`, and point `ca` at that certificate. If the Hub hostname is changed later, download its new certificate and update the Collector's endpoint and CA file before reconnecting.
+First set up the Hub through its temporary Setup AP page or with `make configure` and `make provision` as described in the [firmware guide](firmware.md#first-setup). Copy `access.collector_token` from the downloaded `curio.yaml` into a private token file for the Collector. Computer setup writes `firmware/local/token.txt` directly. Set the endpoint to the Hub's HTTPS address, for example `https://curio.local`.
+
+Collector uses HTTPS without checking the server certificate by default; no certificate file is needed. To enable certificate verification, set `verify_tls: true` or pass `--verify-tls`. This checks the certificate chain, endpoint hostname or IP, and validity dates against system trust. For the Hub's self-signed certificate, download `server-cert.pem` from the normal Web Device tab or the Setup AP page and set `ca` to that file. Setting `ca` also enables verification, even when `verify_tls` is false. Computer setup writes `firmware/local/server-cert.pem`. If the Hub hostname changes, update the endpoint and download its new certificate when using verification.
 
 ```sh
 ./build/curio-collector init
-# Edit collector.yaml and use the certificate and token from Hub setup.
+# Edit collector.yaml with the endpoint and token file from Hub setup.
 ./build/curio-collector check
 ./build/curio-collector --dry-run
 ./build/curio-collector
@@ -48,7 +50,7 @@ The default configuration is `os.UserConfigDir()/curio/collector.yaml`:
 | macOS | `$HOME/Library/Application Support/curio/collector.yaml` |
 | Windows | `%AppData%\curio\collector.yaml` |
 
-Use `--config PATH` with any command to select another file.
+Use `--config PATH` with any command to select another file. `--verify-tls` enables verification without disabling a YAML `verify_tls: true`; with `init` or `export`, it writes `verify_tls: true` into the resulting YAML.
 
 | Command | Behavior |
 | --- | --- |
@@ -69,7 +71,8 @@ YAML must contain one mapping, at most 64 KiB. Unknown fields and duplicate keys
 | Setting | Meaning and default |
 | --- | --- |
 | `endpoint` | HTTPS base URL or full `/api/v2/snapshot` URL |
-| `ca` | Optional PEM certificates added to system trust; the server certificate must match the endpoint hostname or IP |
+| `verify_tls` | Default `false`; enables certificate chain, hostname/IP and validity checks using system trust; `--verify-tls` also enables these checks |
+| `ca` | Optional PEM certificates added to system trust; setting a path enables certificate verification |
 | `token_file` | File containing a 16–128-character collector token (ASCII `!` through `~`, no spaces); required when posting |
 | `host_name` | Display name; defaults to the system hostname, limited to 48 UTF-8 bytes |
 | `host_id` | Optional explicit identity: 1–48 ASCII letters, digits, `.`, `_` or `-` |
@@ -150,7 +153,7 @@ Empty allow lists impose no restriction. Entries within one list are alternative
 
 ### Windows
 
-Prepare YAML, the token and the certificate, then select **Service → Install** in the window. Installation validates the configuration, creates an identity if needed, copies the EXE to `%ProgramFiles%\Curio\curio-collector.exe`, and starts an automatic service named `curio-collector`. It runs at system boot without an interactive login. The service uses the same YAML file; it does not copy the configuration.
+Prepare YAML and the token (plus a certificate file if using `ca`), then select **Service → Install** in the window. Installation validates the configuration, creates an identity if needed, copies the EXE to `%ProgramFiles%\Curio\curio-collector.exe`, and starts an automatic service named `curio-collector`. It runs at system boot without an interactive login. The service uses the same YAML file; it does not copy the configuration.
 
 The default account is the low-privilege `LocalService`. Installation grants the service's configured account read access to the YAML, token, CA and identity files. It does not grant access to any other files. If file references or the service account change, install again to grant the required access. Service errors go to **Event Viewer → Windows Logs → Application**, source `curio-collector`.
 

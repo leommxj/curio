@@ -84,6 +84,8 @@ static void test_network_tls(void)
     config->network.wifi_count = 2;
     strcpy(config->network.wifi[0].ssid, "Studio WiFi");
     strcpy(config->network.wifi[0].password, "password123");
+    config->network.wifi[0].ipv4 = (curio_wifi_ipv4_t){
+        .address = "192.168.1.50", .netmask = "255.255.255.0", .gateway = "192.168.1.1", .dns = "1.1.1.1"};
     strcpy(config->network.wifi[1].ssid, "Studio Guest");
     strcpy(config->network.hostname, "curio-studio");
     strcpy(config->tls.certificate, "supplied-cert");
@@ -98,12 +100,16 @@ static void test_network_tls(void)
            !strcmp(config->network.wifi[1].ssid, "Studio Guest") &&
            !strcmp(config->tls.certificate, "supplied-cert"));
     assert(!strcmp(curio_app.network.hostname, "curio-studio") && !strcmp(curio_app.tls.private_key, "supplied-key"));
+    assert(!strcmp(config->network.wifi[0].ipv4.address, "192.168.1.50"));
     prepared = tls_prepares;
+    strcpy(config->network.wifi[0].ipv4.address, "192.168.1.51");
     assert(save_config(config, revision) == ESP_OK && tls_prepares == prepared);
     assert(curio_settings_set_brightness(44) == ESP_OK && tls_prepares == prepared);
     assert(curio_settings_set_token(true, "another-admin-token-123456") == ESP_OK && tls_prepares == prepared);
     assert(curio_settings_init() == ESP_OK && tls_prepares == prepared);
     assert(curio_app.configured);
+    assert(!strcmp(curio_app.network.wifi[0].ipv4.address, "192.168.1.51") &&
+           !strcmp(curio_app.network.wifi[0].ipv4.dns, "1.1.1.1") && !curio_app.network.wifi[1].ipv4.address[0]);
     assert(curio_app.network.wifi_count == 2 && !strcmp(curio_app.network.wifi[0].ssid, "Studio WiFi") &&
            !strcmp(curio_app.network.wifi[1].ssid, "Studio Guest") &&
            !strcmp(curio_app.tls.certificate, "supplied-cert"));

@@ -210,6 +210,34 @@ class ConfigBrowserTest(BrowserTest):
         self.assertEqual(restarts[0][0], "POST")
         self.assertEqual(restarts[0][1]["authorization"], "Bearer " + self.admin)
 
+    def test_static_ipv4_yaml_reload_and_dhcp(self):
+        self.tab("device")
+        self.page.locator("[data-ipv4-mode]").select_option("static")
+        ipv4 = dict(address="192.168.1.50", netmask="255.255.255.0", gateway="192.168.1.1", dns="8.8.8.8")
+        for field, value in ipv4.items():
+            self.change(f'[data-ipv4-field="{field}"]', value)
+        self.save("#save-device")
+        self.assertEqual(self.config()["network"]["wifi"][0]["ipv4"], ipv4)
+        self.assertIn("initial-cert", self.config()["tls"]["certificate"])
+        with self.page.expect_download() as info:
+            self.page.locator("#download-certificate").click()
+        self.assertIn("initial-cert", Path(info.value.path()).read_text())
+        invalid = [dict(ipv4, address="192.168.01.50"), dict(ipv4, address="192.168.1.0"),
+                   dict(ipv4, netmask="255.0.255.0"), dict(ipv4, netmask="255.255.255.254"),
+                   dict(ipv4, gateway="192.168.2.1"), dict(ipv4, dns="127.0.0.1"), dict(ipv4, toString="extra"),
+                   {key: value for key, value in ipv4.items() if key != "dns"}]
+        for value in invalid:
+            self.assertTrue(self.page.evaluate("ipv4 => { try { validateWifi([{ssid: 'Office', ipv4}]); return false; } catch (_) { return true; } }", value))
+        self.tab("config")
+        self.assertIn("192.168.1.50", self.page.locator("#yaml-editor").input_value())
+        self.tab("device")
+        self.page.locator("#reload").click()
+        self.page.wait_for_function("document.querySelector('[data-ipv4-field=address]').value === '192.168.1.50'")
+        self.page.locator("[data-ipv4-mode]").select_option("dhcp")
+        self.assertTrue(self.page.locator("[data-ipv4-fields]").is_hidden())
+        self.save("#save-device")
+        self.assertNotIn("ipv4", self.config()["network"]["wifi"][0])
+
     def test_wifi_list_order_and_removal(self):
         self.tab("device")
         self.page.locator("#add-wifi").click()

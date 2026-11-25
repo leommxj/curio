@@ -139,6 +139,10 @@ class SetupBrowserTest(BrowserTest):
         self.assertEqual(self.page.locator("#ssid").input_value(), "Old Wi-Fi")
         self.assertEqual(self.page.locator("#password").input_value(), "old-password")
         self.page.locator("#hostname").fill("new-curio")
+        self.page.locator("[data-ipv4-mode]").select_option("static")
+        ipv4 = dict(address="192.168.1.50", netmask="255.255.255.0", gateway="192.168.1.1", dns="8.8.8.8")
+        for field, value in ipv4.items():
+            self.page.locator(f'[data-ipv4-field="{field}"]').fill(value)
         self.fail_next_save = True
         self.remote_wifi_on_conflict = True
         self.page.locator("#save-setup").click()
@@ -152,6 +156,7 @@ class SetupBrowserTest(BrowserTest):
         self.page.locator("#save-setup").click()
         self.page.locator("#setup-saved").wait_for(state="visible")
         self.assertEqual(self.saved[0]["network"]["wifi"][0]["password"], "old-password")
+        self.assertEqual(self.saved[0]["network"]["wifi"][0]["ipv4"], ipv4)
         self.assertEqual([wifi["ssid"] for wifi in self.saved[0]["network"]["wifi"]], ["Old Wi-Fi", "Backup", "Remote"])
         self.assertNotIn("tls", self.saved[0])
         self.assertEqual(self.saved[0]["device"]["brightness"], 60)
@@ -185,6 +190,32 @@ class SetupBrowserTest(BrowserTest):
         self.page.locator("#setup-saved").wait_for(state="visible")
         self.assertEqual(self.saved[0]["network"], {
             "wifi": [{"ssid": "New Wi-Fi", "password": "new-password"}], "hostname": "curio-desk"})
+
+    def test_static_ipv4_validation_reload_and_dhcp(self):
+        self.source = FIXTURE + "network: {wifi: [{ssid: Office, password: password123}]}\n" + \
+            "tls: {certificate: old-certificate, private_key: old-key}\n"
+        self.open()
+        self.page.locator("[data-ipv4-mode]").select_option("static")
+        ipv4 = dict(address="192.168.1.50", netmask="255.255.255.0", gateway="192.168.1.1", dns="8.8.8.8")
+        for field, value in ipv4.items():
+            self.page.locator(f'[data-ipv4-field="{field}"]').fill(value)
+        self.page.locator('[data-ipv4-field="gateway"]').fill("192.168.2.1")
+        self.page.locator("#save-setup").click()
+        self.assertIn("ipv4", self.page.locator("#setup-status").inner_text())
+        self.assertEqual(self.page.locator('[data-ipv4-field="gateway"]').input_value(), "192.168.2.1")
+        self.page.locator('[data-ipv4-field="gateway"]').fill(ipv4["gateway"])
+        self.page.locator("#save-setup").click()
+        self.page.locator("#setup-saved").wait_for(state="visible")
+        self.assertEqual(self.saved[-1]["network"]["wifi"][0]["ipv4"], ipv4)
+        self.assertEqual(self.saved[-1]["tls"]["certificate"], "old-certificate")
+        self.page.reload()
+        self.page.locator("#setup-form").wait_for(state="visible")
+        self.assertEqual(self.page.locator('[data-ipv4-field="address"]').input_value(), ipv4["address"])
+        self.page.locator("[data-ipv4-mode]").select_option("dhcp")
+        self.assertTrue(self.page.locator("[data-ipv4-fields]").is_hidden())
+        self.page.locator("#save-setup").click()
+        self.page.locator("#setup-saved").wait_for(state="visible")
+        self.assertNotIn("ipv4", self.saved[-1]["network"]["wifi"][0])
 
     def test_default_hostname_keeps_existing_certificate(self):
         self.source = FIXTURE + "network: {wifi: [{ssid: Office, password: password123}]}\n" + \

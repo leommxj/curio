@@ -341,7 +341,7 @@ function parseConfig(source) {
     if (value.network.wifi !== undefined) {
       validateWifi(value.network.wifi);
       for (const [i, wifi] of value.network.wifi.entries())
-        keys(wifi, ["ssid", "password"], `network.wifi[${i}]`);
+        keys(wifi, ["ssid", "password", "ipv4"], `network.wifi[${i}]`);
     }
   }
   if (value.tls !== undefined)
@@ -544,9 +544,10 @@ function syncFormYaml() {
       ...(device.ntp_server !== "pool.ntp.org" ? { ntp_server: device.ntp_server } : {}),
     },
     network: {
-      wifi: network.wifi.map(({ ssid, password }) => ({
+      wifi: network.wifi.map(({ ssid, password, ipv4 }) => ({
         ssid,
         ...(password ? { password } : {}),
+        ...(ipv4 !== undefined ? { ipv4 } : {}),
       })),
       ...(network.hostname !== "curio" ? { hostname: network.hostname } : {}),
     },
@@ -920,6 +921,7 @@ function renderEditor() {
         </div></div>
         <label>Wi-Fi 名称<input data-wifi-field="ssid" maxlength="32" value="${esc(wifi.ssid)}" autocomplete="off"></label>
         <label>Wi-Fi 密码<input data-wifi-field="password" type="password" maxlength="64" value="${esc(wifi.password ?? "")}" autocomplete="off" placeholder="留空表示开放网络"></label>
+        ${wifiIpv4Controls(wifi)}
       </div>`).join("");
     $("#editor").innerHTML =
       `<section class="panel"><h2>设备</h2><label>NTP 服务器<input id="ntp-server" maxlength="127" value="${esc(device.ntp_server)}"></label><label>亮度<input id="brightness" type="number" min="0" max="100" value="${device.brightness}"></label><label class="switch-field"><input id="auto-rotate" type="checkbox" role="switch" ${device.auto_rotate ? "checked" : ""}><span>自动旋转</span></label><label>手动方向<select id="rotation" ${device.auto_rotate ? "disabled" : ""}>${[0, 90, 180, 270].map((x) => `<option value="${x}" ${x === device.rotation ? "selected" : ""}>${x}°</option>`).join("")}</select></label><div class="wifi-heading"><h3>Wi-Fi 网络</h3><button id="add-wifi" ${network.wifi.length >= 4 ? "disabled" : ""}>添加网络</button></div>${wifiRows}<label>主机名<input id="network-hostname" maxlength="32" value="${esc(network.hostname)}"></label><p>网络设置和证书在重启后生效。</p><div class="actions"><button id="save-device">保存</button><button id="reload">重新加载</button><button id="restart-device">重启</button><button id="download-certificate" ${configDocument.tls?.certificate ? "" : "disabled"}>下载证书</button></div></section>`;
@@ -1109,6 +1111,13 @@ document.addEventListener("change", (e) => {
   }
   if (t.id === "ntp-server") {
     device.ntp_server = t.value.trim();
+    markDirty("device");
+    status("");
+    return;
+  }
+  if (t.hasAttribute("data-ipv4-mode") || t.dataset.ipv4Field) {
+    const row = t.closest("[data-wifi-index]");
+    editWifiIpv4(network.wifi[Number(row.dataset.wifiIndex)], t, row);
     markDirty("device");
     status("");
     return;

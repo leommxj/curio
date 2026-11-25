@@ -40,7 +40,7 @@ func newPoster(cfg config) (*poster, error) {
 			return nil, errors.New("HTTPS required; development HTTP needs allow_http_loopback and a loopback host")
 		}
 	}
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: !cfg.VerifyTLS && cfg.CA == ""}
 	if cfg.CA != "" {
 		pem, err := os.ReadFile(cfg.CA)
 		if err != nil {

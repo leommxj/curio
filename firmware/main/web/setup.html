@@ -18,6 +18,7 @@
           <div class="wifi-heading"><label>Wi-Fi 网络<select id="wifi-select"></select></label><button id="add-setup-wifi" type="button">添加网络</button></div>
           <label>Wi-Fi 名称<input id="ssid" required autocomplete="off" /></label>
           <label>Wi-Fi 密码<input id="password" type="password" maxlength="64" autocomplete="off" placeholder="留空表示开放网络" /></label>
+          <div id="setup-ipv4"></div>
           <label>设备名称<input id="hostname" required maxlength="32" pattern="[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?" value="curio" autocomplete="off" /></label>
           <button id="save-setup" type="submit">保存设置</button>
         </form>

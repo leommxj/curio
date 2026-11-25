@@ -17,7 +17,7 @@ function setBusy(busy) {
 }
 
 function copyWifi(list) {
-  return list.map(wifi => ({ ...wifi }));
+  return JSON.parse(JSON.stringify(list));
 }
 
 function renderWifi() {
@@ -29,6 +29,7 @@ function renderWifi() {
   document.querySelector("#add-setup-wifi").disabled = wifiDraft.length >= 4;
   document.querySelector("#ssid").value = wifiDraft[selectedWifi]?.ssid ?? "";
   document.querySelector("#password").value = wifiDraft[selectedWifi]?.password ?? "";
+  document.querySelector("#setup-ipv4").innerHTML = wifiIpv4Controls(wifiDraft[selectedWifi]);
 }
 
 function fillFields(value) {
@@ -45,8 +46,8 @@ function mergedDraft(remote) {
     const original = sourceWifi[i];
     if (original && JSON.stringify(wifi) === JSON.stringify(original)) continue;
     const at = original ? result.findIndex(item => item.ssid === original.ssid) : -1;
-    if (at >= 0) result[at] = { ...wifi };
-    else result.push({ ...wifi });
+    if (at >= 0) result[at] = copyWifi([wifi])[0];
+    else result.push(copyWifi([wifi])[0]);
   }
   return result;
 }
@@ -152,6 +153,15 @@ for (const field of ["ssid", "password"]) {
       `${selectedWifi + 1}. ${event.target.value || "新网络"}`;
   });
 }
+
+document.querySelector("#setup-ipv4").addEventListener("input", event => {
+  if (event.target.dataset.ipv4Field)
+    editWifiIpv4(wifiDraft[selectedWifi], event.target, event.currentTarget);
+});
+document.querySelector("#setup-ipv4").addEventListener("change", event => {
+  if (event.target.hasAttribute("data-ipv4-mode"))
+    editWifiIpv4(wifiDraft[selectedWifi], event.target, event.currentTarget);
+});
 
 form.addEventListener("submit", async event => {
   event.preventDefault();

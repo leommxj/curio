@@ -19,6 +19,7 @@ type localConfig struct {
 	Version      int                     `yaml:"version,omitempty"`
 	Endpoint     string                  `yaml:"endpoint,omitempty"`
 	CA           string                  `yaml:"ca,omitempty"`
+	VerifyTLS    bool                    `yaml:"verify_tls,omitempty"`
 	TokenFile    string                  `yaml:"token_file,omitempty"`
 	IdentityFile string                  `yaml:"identity_file,omitempty"`
 	HostID       string                  `yaml:"host_id,omitempty"`
@@ -104,6 +105,7 @@ func loadLocalConfig(cfg config) (config, error) {
 		return cfg, errors.New("invalid host_id")
 	}
 	cfg.AllowHTTP = local.AllowHTTP
+	cfg.VerifyTLS = cfg.VerifyTLS || local.VerifyTLS
 	dir, _ := os.UserConfigDir()
 	cfg.IdentityFile = filepath.Join(base, "host-id")
 	if local.IdentityFile != "" {
@@ -228,7 +230,7 @@ func readLocalConfig(r io.Reader) (localConfig, error) {
 	return local, nil
 }
 
-func exportConfig(path string, output io.Writer) error {
+func exportConfig(path string, output io.Writer, verifyTLS bool) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -238,6 +240,7 @@ func exportConfig(path string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	local.VerifyTLS = local.VerifyTLS || verifyTLS
 	local.Version = 0
 	if local.IdentityFile == "host-id" {
 		local.IdentityFile = ""

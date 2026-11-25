@@ -52,7 +52,7 @@ make collector
 ./build/curio-collector init
 ```
 
-Edit the generated `collector.yaml`: set the endpoint, certificate, token file and sources. See the [example](collector/config.example.yaml) and [Collector guide](docs/collector.md).
+Edit the generated `collector.yaml`: set the endpoint, token file and sources. HTTPS certificate verification is off by default; set `verify_tls: true`, pass `--verify-tls`, or supply `ca` to enable it. See the [example](collector/config.example.yaml) and [Collector guide](docs/collector.md).
 
 ```sh
 ./build/curio-collector check
@@ -62,7 +62,7 @@ Edit the generated `collector.yaml`: set the endpoint, certificate, token file a
 
 The default file is `curio/collector.yaml` in the user's configuration directory. Use `--config PATH` to select another file; restart after edits. On Linux, install a user service with `make install-collector`, or use `make install-collector MODE=system` for a system service. See [service deployment](docs/collector.md#services).
 
-Open `https://curio.local` (or your chosen hostname) in a browser, trust the device certificate and sign in with the admin token from setup. Computer provisioning also saves it in `firmware/local/admin-token.txt`. The web interface edits screen layout, data bindings, alerts and YAML; its Device tab manages up to four Wi-Fi networks in connection order. Bindings may refer to data that has not arrived yet. The [example Hub configuration](curio.example.yaml) shows the format.
+Open `https://curio.local` (or your chosen hostname) in a browser, trust the device certificate and sign in with the admin token from setup. Computer provisioning also saves it in `firmware/local/admin-token.txt`. The web interface edits screen layout, data bindings, alerts and YAML; its Device tab manages up to four Wi-Fi networks with DHCP or static IPv4 and downloads the certificate. Bindings may refer to data that has not arrived yet. The [example Hub configuration](curio.example.yaml) shows the format.
 
 Admin and Collector tokens can be changed from the web interface. Full YAML exports contain Wi-Fi settings, both tokens, and the TLS certificate and private key. Network and certificate changes take effect after a restart. Alert rules are empty by default; notifications disappear after ten seconds unless configured otherwise. Reported data and notifications are kept in RAM.
 
@@ -138,7 +138,7 @@ make collector
 ./build/curio-collector init
 ```
 
-编辑生成的 `collector.yaml`，填写设备地址、证书、token 文件和采集来源，参见[配置示例](collector/config.example.yaml)与 [Collector 文档](docs/collector.md)。
+编辑生成的 `collector.yaml`，填写设备地址、token 文件和采集来源。HTTPS 默认不校验证书；配置 `verify_tls: true`、传入 `--verify-tls` 或指定 `ca` 可启用校验。参见[配置示例](collector/config.example.yaml)与 [Collector 文档](docs/collector.md)。
 
 ```sh
 ./build/curio-collector check
@@ -148,7 +148,7 @@ make collector
 
 默认配置位于用户配置目录下的 `curio/collector.yaml`，可用 `--config PATH` 指定其他路径，修改后重启。Linux 可执行 `make install-collector` 安装用户服务，或使用 `make install-collector MODE=system` 安装系统服务，参见[服务部署](docs/collector.md#services)。
 
-浏览器打开 `https://curio.local`（或设置的主机名），信任设备证书后使用设置时取得的管理 token 登录。电脑配置时也会写入 `firmware/local/admin-token.txt`。网页可配置布局、数据绑定、提醒和完整 YAML，「设备」页支持按连接顺序管理最多四组 Wi-Fi 网络。数据绑定可预先配置，无需等待上报。[Hub 配置示例](curio.example.yaml)展示了字段格式。
+浏览器打开 `https://curio.local`（或设置的主机名），信任设备证书后使用设置时取得的管理 token 登录。电脑配置时也会写入 `firmware/local/admin-token.txt`。网页可配置布局、数据绑定、提醒和完整 YAML，「设备」页支持管理最多四组 Wi-Fi 网络，分别选择 DHCP 或静态 IPv4，并可下载证书。数据绑定可预先配置，无需等待上报。[Hub 配置示例](curio.example.yaml)展示了字段格式。
 
 网页可修改管理 token、生成 Collector token；完整 YAML 导出包含 Wi-Fi、两项 token、证书和私钥。修改网络或证书后需重启生效。提醒默认没有规则，需要自行添加；通知默认十秒消失，也可调整。采集数据和通知仅保存在 RAM。
 

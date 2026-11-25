@@ -417,6 +417,8 @@ static void stop_setup(void)
 static void network_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
+        wifi_ap_record_t ap;
+        if (esp_wifi_sta_get_ap_info(&ap) != ESP_OK) return;
         ip_event_got_ip_t *event = data;
         xSemaphoreTake(curio_app.mutex, portMAX_DELAY);
         curio_app.wifi_connected = true;
@@ -467,7 +469,7 @@ static void network_task(void *arg)
     const esp_iris_mdns_config_t iris_discovery = {.instance_prefix = "Curio", .mode = "normal"};
     ESP_ERROR_CHECK(esp_iris_mdns_register(&iris_discovery));
     ESP_ERROR_CHECK(esp_wifi_start());
-    curio_wifi_t connection = {0};
+    curio_wifi_t connection = {.interface = interface};
     uint64_t service_revision = UINT64_MAX;
     if (!configured && !shared_trial) curio_network_setup(true);
     for (;;) {

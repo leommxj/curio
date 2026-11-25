@@ -20,7 +20,7 @@ type config struct {
 	ConfigFile                                                     string
 	Endpoint, TokenFile, Token, CA, HostID, HostName, IdentityFile string
 	Interval, Timeout                                              time.Duration
-	Once, DryRun, AllowHTTP                                        bool
+	Once, DryRun, AllowHTTP, VerifyTLS                             bool
 }
 
 func configFlags(args []string, name string, sampling bool, output io.Writer) (config, error) {
@@ -32,6 +32,7 @@ func configFlags(args []string, name string, sampling bool, output io.Writer) (c
 		defaultPath = filepath.Join(dir, "curio", "collector.yaml")
 	}
 	flags.StringVar(&cfg.ConfigFile, "config", defaultPath, "configuration file")
+	flags.BoolVar(&cfg.VerifyTLS, "verify-tls", false, "verify the Hub TLS certificate")
 	if sampling {
 		flags.BoolVar(&cfg.Once, "once", false, "collect and post once")
 		flags.BoolVar(&cfg.DryRun, "dry-run", false, "print one snapshot without posting")

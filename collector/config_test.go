@@ -207,3 +207,41 @@ func TestTokenMatchesHubContract(t *testing.T) {
 		}
 	}
 }
+
+func TestTLSConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		name, yaml string
+		args       []string
+		want       bool
+	}{
+		{name: "default"},
+		{name: "YAML enabled", yaml: "verify_tls: true\n", want: true},
+		{name: "CLI enabled", args: []string{"--verify-tls"}, want: true},
+		{name: "CLI false preserves YAML", yaml: "verify_tls: true\n", args: []string{"--verify-tls=false"}, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			p := testLocalConfig(t, test.yaml+"sources: {}\n")
+			args := append([]string{"--config", p}, test.args...)
+			cfg, err := parseConfig(args, io.Discard)
+			if err != nil || cfg.VerifyTLS != test.want {
+				t.Fatalf("VerifyTLS = %v, want %v: %v", cfg.VerifyTLS, test.want, err)
+			}
+			var output bytes.Buffer
+			if err := run(context.Background(), append([]string{"export"}, args...), &output, io.Discard); err != nil {
+				t.Fatal(err)
+			}
+			local, err := readLocalConfig(&output)
+			if err != nil || local.VerifyTLS != test.want {
+				t.Fatalf("export VerifyTLS = %v, want %v: %v", local.VerifyTLS, test.want, err)
+			}
+		})
+	}
+	p := filepath.Join(t.TempDir(), "collector.yaml")
+	if err := run(context.Background(), []string{"init", "--config", p, "--verify-tls"}, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := parseConfig([]string{"--config", p}, io.Discard)
+	if err != nil || !cfg.VerifyTLS || cfg.CA != "" {
+		t.Fatalf("init TLS configuration: %+v %v", cfg, err)
+	}
+}

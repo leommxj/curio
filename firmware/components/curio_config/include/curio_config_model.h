@@ -15,7 +15,8 @@ typedef struct {
     char ntp_server[128];
 } curio_device_config_t;
 typedef struct { char admin_token[129], collector_token[129]; } curio_access_config_t;
-typedef struct { char ssid[33], password[65]; } curio_wifi_config_t;
+typedef struct { char address[16], netmask[16], gateway[16], dns[16]; } curio_wifi_ipv4_t;
+typedef struct { char ssid[33], password[65]; curio_wifi_ipv4_t ipv4; } curio_wifi_config_t;
 typedef struct {
     char hostname[33];
     curio_wifi_config_t wifi[CURIO_WIFI_MAX_NETWORKS];
