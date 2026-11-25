@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache-dependency-path: collector/go.sum
+
+      - name: Test
+        run: make test
+
+      - name: Build Collector archives
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            export GOOS="${target%/*}" GOARCH="${target#*/}"
+            package="curio-collector-${GOOS}-${GOARCH}"
+            directory="$RUNNER_TEMP/$package"
+            make collector BUILD_DIR="$directory"
+            cp collector/config.example.yaml LICENSE "$directory/"
+            if [[ "$GOOS" == windows ]]; then
+              mv "$directory/curio-collector" "$directory/curio-collector.exe"
+              (cd "$RUNNER_TEMP" && python3 -m zipfile -c "$GITHUB_WORKSPACE/dist/$package.zip" "$package")
+            else
+              tar -czf "dist/$package.tar.gz" -C "$RUNNER_TEMP" "$package"
+            fi
+          done
+
+      - name: Build firmware
+        env:
+          IDF_PATH: ${{ runner.temp }}/esp-idf
+        run: |
+          idf_commit=$(python3 -c "import json; print(json.load(open('dependencies.json'))['idf_commit'])")
+          git init "$IDF_PATH"
+          git -C "$IDF_PATH" remote add origin https://github.com/espressif/esp-idf.git
+          git -C "$IDF_PATH" fetch --depth 1 origin "$idf_commit"
+          git -C "$IDF_PATH" checkout --detach FETCH_HEAD
+          git -C "$IDF_PATH" submodule update --init --recursive --depth 1
+          "$IDF_PATH/install.sh" esp32s31
+          . "$IDF_PATH/export.sh"
+          make firmware
+          cp build/firmware/curio-system-update.irisfw dist/
+
+      - name: Publish Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import zipfile
+
+          with zipfile.ZipFile("dist/curio-system-update.irisfw") as bundle:
+              version = json.loads(bundle.read("manifest.json"))["release"]
+          tag = os.environ["GITHUB_REF_NAME"]
+          if tag != f"v{version}":
+              raise SystemExit(f"Tag {tag} does not match firmware version {version}")
+          PY
+          (cd dist && sha256sum * > SHA256SUMS)
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes

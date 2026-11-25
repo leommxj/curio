@@ -70,6 +70,8 @@ Admin and Collector tokens can be changed from the web interface. Full YAML expo
 
 Run `make help` for build, flash, service and test commands. `make test` runs the host tests; UI and browser tests have separate targets described in the [test guide](tests/README.md).
 
+Pushing a `vX.Y.Z` tag runs `make test` and publishes the firmware, Collector archives and SHA-256 checksums to [GitHub Releases](https://github.com/leommxj/curio/releases). The tag must match `project(curio VERSION X.Y.Z)` in `firmware/CMakeLists.txt`. Collector archives cover Linux and macOS (amd64/arm64) and Windows (amd64), and include the configuration example and license.
+
 `make flash` builds before installing and preserves saved NVS configuration. `make flash BUNDLE=/path/to/file.irisfw` installs an existing bundle. `make configure` writes credentials to `firmware/local/`; normal firmware builds do not include them. `make provision` writes that configuration to the device under the setup gate. Firmware and Collector output defaults to `build/`. Set `PYTHON`, `GO` or `FIRMWARE_BUILD_DIR` when using a different interpreter, toolchain or build location.
 
 ### Limits and development
@@ -155,6 +157,8 @@ make collector
 ### 常用命令
 
 执行 `make help` 查看构建、刷写、服务和测试命令。`make test` 运行主机测试；UI 和浏览器测试使用单独入口，见[测试文档](tests/README.md)。
+
+推送 `vX.Y.Z` tag 会运行 `make test`，并将固件、Collector 压缩包和 SHA-256 校验文件发布到 [GitHub Releases](https://github.com/leommxj/curio/releases)。tag 须与 `firmware/CMakeLists.txt` 中的 `project(curio VERSION X.Y.Z)` 一致。Collector 提供 Linux、macOS 的 amd64/arm64 版本和 Windows amd64 版本，包内附配置示例和许可证。
 
 `make flash` 先构建再刷写，并保留设备 NVS 中已有的配置；`make flash BUNDLE=/path/to/file.irisfw` 刷写已有升级包。`make configure` 将凭证写到 `firmware/local/`，普通固件构建不包含凭证；`make provision` 仅在设置入口开放时写入设备。固件和 Collector 构建产物默认位于 `build/`。可用 `PYTHON`、`GO`、`FIRMWARE_BUILD_DIR` 指定解释器、工具链或构建目录。
 
